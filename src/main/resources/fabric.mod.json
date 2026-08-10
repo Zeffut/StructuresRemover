@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"id": "structuresremover",
+	"version": "${version}",
+	"name": "StructuresRemover",
+	"description": "Select a structure the WorldEdit way, then delete every identical copy of it across the whole map.",
+	"authors": [
+		"Zeffut"
+	],
+	"contact": {
+		"repo": "https://github.com/Zeffut/StructuresRemover"
+	},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"fr.zeffut.structuresremover.StructuresRemover"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"fabric-api": "*",
+		"minecraft": "~1.21.1",
+		"java": ">=21"
+	}
+}
