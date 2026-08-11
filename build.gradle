@@ -29,6 +29,16 @@ test {
 	useJUnitPlatform()
 }
 
+loom {
+	runs {
+		selftest {
+			inherit server
+			name = "Self test"
+			property "structuresremover.selftest", "true"
+		}
+	}
+}
+
 processResources {
 	inputs.property "version", project.version
 

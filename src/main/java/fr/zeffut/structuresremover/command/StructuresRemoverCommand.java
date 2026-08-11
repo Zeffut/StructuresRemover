@@ -531,14 +531,10 @@ public final class StructuresRemoverCommand {
 		ChunkSupplier supplier;
 
 		if (wholeWorld) {
-			// A whole-world walk is driven by the region files on disk, so anything still sitting
-			// in memory has to be flushed first or it would simply be skipped.
-			context.getSource().getServer().saveAll(true, true, true);
-
 			ChunkSupplier.WholeWorld wholeWorldSupplier = new ChunkSupplier.WholeWorld(regionIndex);
 
 			if (wholeWorldSupplier.regionCount() == 0) {
-				return error(context, "No region files found for " + world.getRegistryKey().getValue() + ".");
+				return error(context, "Nothing generated yet in " + world.getRegistryKey().getValue() + ".");
 			}
 
 			supplier = wholeWorldSupplier;

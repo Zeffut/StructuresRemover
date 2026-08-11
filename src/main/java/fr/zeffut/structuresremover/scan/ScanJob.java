@@ -53,6 +53,8 @@ public final class ScanJob implements Job {
 	private Phase phase = Phase.SCAN;
 	private boolean cancelled;
 	private int ticks;
+	private long anchorHits;
+	private long chunksScanned;
 
 	private int matchCursor;
 	private int cellCursor;
@@ -173,6 +175,8 @@ public final class ScanJob implements Job {
 			return;
 		}
 
+		this.chunksScanned++;
+
 		ChunkSection[] sections = chunk.getSectionArray();
 
 		for (int sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
@@ -200,6 +204,7 @@ public final class ScanJob implements Job {
 							continue;
 						}
 
+						this.anchorHits++;
 						this.testCandidates(candidates,
 								(chunkX << 4) + x, baseY + y, (chunkZ << 4) + z);
 
@@ -345,7 +350,8 @@ public final class ScanJob implements Job {
 	private void reportProgress() {
 		int percent = MathHelper.clamp((int) (this.progress() * 100), 0, 100);
 		String detail = this.phase == Phase.SCAN
-				? this.chunks.visited() + " chunks, " + this.matches.size() + " copies found"
+				? this.chunksScanned + " chunks read, " + this.anchorHits + " key blocks, "
+						+ this.matches.size() + " copies"
 				: this.blocksChanged + "/" + this.totalBlocksToChange + " blocks removed";
 
 		Chat.actionBar(this.world.getServer(), this.owner,
@@ -372,7 +378,7 @@ public final class ScanJob implements Job {
 		if (aborted) {
 			summary = Text.literal("Cancelled after ")
 					.formatted(Formatting.YELLOW)
-					.append(Text.literal(this.chunks.visited() + " chunks").formatted(Formatting.AQUA))
+					.append(Text.literal(this.chunksScanned + " chunks").formatted(Formatting.AQUA))
 					.append(Text.literal(", " + this.matches.size() + " copies found, "
 							+ this.blocksChanged + " blocks removed.").formatted(Formatting.YELLOW));
 		} else if (this.removeMode) {
@@ -380,15 +386,19 @@ public final class ScanJob implements Job {
 					.formatted(Formatting.GREEN)
 					.append(Text.literal(this.matches.size() + " copies").formatted(Formatting.AQUA))
 					.append(Text.literal(" (" + this.blocksChanged + " blocks, "
-							+ this.chunks.visited() + " chunks scanned).").formatted(Formatting.GREEN));
+							+ this.chunksScanned + " chunks read).").formatted(Formatting.GREEN));
 		} else {
 			summary = Text.literal("Found ")
 					.formatted(Formatting.GREEN)
 					.append(Text.literal(this.matches.size() + " copies").formatted(Formatting.AQUA))
-					.append(Text.literal(" in " + this.chunks.visited() + " chunks.").formatted(Formatting.GREEN));
+					.append(Text.literal(" in " + this.chunksScanned + " chunks.").formatted(Formatting.GREEN));
 		}
 
 		Chat.toPlayer(this.world.getServer(), this.owner, summary);
+
+		if (this.matches.isEmpty() && !aborted) {
+			this.explainEmptyResult();
+		}
 
 		if (!this.matches.isEmpty()) {
 			if (this.targetCount > 1) {
@@ -434,6 +444,48 @@ public final class ScanJob implements Job {
 		}
 	}
 
+	/**
+	 * Says why a scan came back empty. The useful signal is whether the anchor block was seen at
+	 * all: never seen means the scan looked in the wrong place, seen often means the copies are not
+	 * actually identical.
+	 */
+	private void explainEmptyResult() {
+		StringBuilder anchors = new StringBuilder();
+
+		for (BlockState anchor : this.candidatesByAnchor.keySet()) {
+			if (!anchors.isEmpty()) {
+				anchors.append(", ");
+			}
+
+			anchors.append(anchor.getBlock().getName().getString());
+		}
+
+		Chat.toPlayer(this.world.getServer(), this.owner, Text.literal(
+						"  read " + this.chunksScanned + " of " + this.chunks.visited()
+								+ " chunk(s); key block (" + anchors + ") seen " + this.anchorHits + " time(s).")
+				.formatted(Formatting.GRAY));
+
+		String hint;
+
+		if (this.chunksScanned == 0) {
+			hint = "  No chunk could be read at all: that area is not generated. "
+					+ "Go there once, or scan a place that exists.";
+		} else if (this.anchorHits == 0) {
+			hint = "  That block does not occur anywhere in the area scanned. Widen the radius, "
+					+ "check the dimension, or select a structure whose blocks really are repeated.";
+		} else {
+			hint = "  The block was found but its surroundings differ, so the copies are not identical. "
+					+ "Try /sr set rotations true if they face different ways, or lower /sr set tolerance.";
+		}
+
+		Chat.toPlayer(this.world.getServer(), this.owner, Text.literal(hint).formatted(Formatting.YELLOW));
+	}
+
+	/** Copies found so far. */
+	public List<Match> matches() {
+		return this.matches;
+	}
+
 	@Override
 	public Text describe() {
 		int percent = MathHelper.clamp((int) (this.progress() * 100), 0, 100);
@@ -441,7 +493,8 @@ public final class ScanJob implements Job {
 		return Text.literal(mode + " " + this.targetCount + " structure(s) in "
 				+ this.world.getRegistryKey().getValue()
 				+ " — " + percent + "% (" + this.phase.name().toLowerCase() + "), "
-				+ this.matches.size() + " copies, " + this.chunks.visited() + " chunks visited");
+				+ this.matches.size() + " copies, " + this.chunksScanned + " chunks read of "
+				+ this.chunks.visited() + " considered, " + this.anchorHits + " key blocks seen");
 	}
 
 	private enum Phase {

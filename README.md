@@ -127,10 +127,37 @@ tolérance est basse, plus le risque de faux positif est grand.
 5. **Suppression** — les copies trouvées sont remplacées par le bloc `fill`, sans mises à jour de
    voisinage ni drops, et l'ancien état est mémorisé pour `/sr undo`.
 
-Le scan ne visite que les chunks **déjà générés** : l'en-tête des fichiers `r.X.Z.mca` est lu
-directement pour savoir quels chunks existent. Sans cette précaution, demander un chunk au serveur
-le ferait générer, et un scan « map entière » finirait par créer du terrain au lieu de le
-parcourir.
+Le scan ne visite que les chunks **qui existent réellement**, c'est-à-dire l'union de deux
+sources : l'en-tête des fichiers `r.X.Z.mca` (ce qui est sur le disque) et les chunks actuellement
+chargés par le serveur. Les deux sont nécessaires — un chunk qui vient d'être généré ou modifié
+peut rester longtemps en mémoire avant d'atteindre un fichier de région, et `saveAll` ne le force
+pas de manière fiable. Un parcours disque seul saute donc précisément la zone où le joueur
+travaille.
+
+Sans cette précaution, demander un chunk au serveur le ferait générer, et un scan « map entière »
+finirait par créer du terrain au lieu de le parcourir.
+
+## Quand le scan ne trouve rien
+
+La ligne de progression indique en direct **le nombre de chunks réellement lus** et **le nombre de
+fois où le bloc-clé de la structure a été vu**. C'est ce qui permet de trancher :
+
+| Ce que tu vois | Ce que ça veut dire |
+| --- | --- |
+| `0 chunks read` | la zone n'est pas générée — va y faire un tour, ou scanne ailleurs |
+| `N chunks read, 0 key blocks` | le bloc-clé n'existe pas dans la zone : mauvais rayon, ou mauvaise dimension |
+| `N chunks read, beaucoup de key blocks, 0 copies` | les copies **ne sont pas identiques** |
+
+Le dernier cas est le plus fréquent sur une vraie map. Les causes habituelles :
+
+- **les copies sont tournées** — par défaut le mod ne cherche que la même orientation, essaie
+  `/sr set rotations true`
+- **la sélection inclut le terrain** sous la structure : chaque copie repose sur un sol différent,
+  donc plus rien ne correspond. Resserre avec `/sr trim`, ou refais la sélection sans le sol.
+- **les blocs se sont adaptés au décor** : escaliers, barrières, murs et feuilles changent d'état
+  selon leurs voisins. `/sr set tolerance 95` laisse passer ces écarts.
+
+Le mod affiche aussi ce diagnostic à la fin d'un scan resté vide.
 
 ## Limites connues
 
@@ -149,10 +176,16 @@ parcourir.
 ## Compilation
 
 ```bash
-./gradlew build      # jar dans build/libs/
-./gradlew test       # tests des rotations / miroirs / choix de l'ancre
-./gradlew runServer  # serveur de dev
+./gradlew build       # jar dans build/libs/
+./gradlew test        # tests des rotations / miroirs / choix de l'ancre
+./gradlew runServer   # serveur de dev
+./gradlew runSelftest # lance un serveur, y pose des structures et vérifie la détection
 ```
+
+`runSelftest` couvre ce que les tests unitaires ne peuvent pas atteindre : il démarre un vrai
+serveur, y construit des structures et leurs copies, puis fait tourner le vrai scan dessus. Cinq
+scénarios : copies proches, structure à cheval sur deux chunks, structure faite de blocs de
+terrain courants, parcours « map entière » par fichiers de région, et structure sans aucune copie.
 
 Java 21 et Gradle 9.7 (fourni par le wrapper) requis.
 

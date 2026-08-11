@@ -25,6 +25,7 @@ public class StructuresRemover implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		WandHandler.register();
+		DevSelfTest.register();
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
 				StructuresRemoverCommand.register(dispatcher, registryAccess));
