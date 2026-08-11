@@ -35,6 +35,7 @@ public final class WandHandler {
 
 			PlayerSelection selection = SelectionManager.get(serverPlayer.getUuid());
 			selection.setPos1(world.getRegistryKey(), pos);
+			SelectionManager.markDirty(serverPlayer.getUuid());
 			announce(serverPlayer, "Corner 1", pos, selection);
 			return ActionResult.SUCCESS;
 		});
@@ -48,6 +49,7 @@ public final class WandHandler {
 			BlockPos pos = hitResult.getBlockPos();
 			PlayerSelection selection = SelectionManager.get(serverPlayer.getUuid());
 			selection.setPos2(world.getRegistryKey(), pos);
+			SelectionManager.markDirty(serverPlayer.getUuid());
 			announce(serverPlayer, "Corner 2", pos, selection);
 			return ActionResult.SUCCESS;
 		});

@@ -53,6 +53,19 @@ lancer **un seul** scan qui cherche les deux en même temps. Limite : 16 structu
 
 Si la file est vide, `/sr scan` et `/sr remove` utilisent simplement la sélection courante.
 
+### Persistance
+
+La sélection courante, les structures mises en file et les réglages **survivent au redémarrage du
+serveur**. Ils sont écrits dans la sauvegarde du monde, sous
+`<monde>/structuresremover/<uuid>.dat` : un fichier NBT compressé par joueur, où les blocs sont
+stockés sous forme de palette plus un index par case.
+
+Les données vivent dans le monde, pas à côté du mod, parce qu'une structure mémorise les
+coordonnées où elle a été capturée — les transporter vers un autre monde n'aurait aucun sens.
+
+L'historique d'annulation (`/sr undo`), lui, n'est **pas** conservé : il décrit des blocs qui
+peuvent avoir changé entre deux démarrages.
+
 ### Chercher et supprimer
 
 ```
@@ -168,8 +181,7 @@ Le mod affiche aussi ce diagnostic à la fin d'un scan resté vide.
   sauvegarde du monde avant de démarrer, pour que les chunks encore en mémoire soient bien pris en
   compte.
 - Une seule opération à la fois sur le serveur.
-- Les structures mises en file et les sélections vivent en mémoire : un redémarrage du serveur
-  les efface.
+- `/sr undo` ne survit pas à un redémarrage (les sélections et les structures, si).
 - Les messages en jeu sont en anglais, pour rester lisibles depuis un client vanilla (pas de
   fichier de langue côté client).
 
@@ -186,6 +198,13 @@ Le mod affiche aussi ce diagnostic à la fin d'un scan resté vide.
 serveur, y construit des structures et leurs copies, puis fait tourner le vrai scan dessus. Cinq
 scénarios : copies proches, structure à cheval sur deux chunks, structure faite de blocs de
 terrain courants, parcours « map entière » par fichiers de région, et structure sans aucune copie.
+
+La persistance se teste sur deux démarrages successifs :
+
+```bash
+./gradlew runSelftest -Dsrpersist=write    # écrit sélection, structures et réglages
+./gradlew runSelftest -Dsrpersist=verify   # redémarre et vérifie que tout est revenu
+```
 
 Java 21 et Gradle 9.7 (fourni par le wrapper) requis.
 

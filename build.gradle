@@ -35,6 +35,7 @@ loom {
 			inherit server
 			name = "Self test"
 			property "structuresremover.selftest", "true"
+			property "structuresremover.persist", System.getProperty("srpersist", "")
 		}
 	}
 }

@@ -8,6 +8,8 @@ import fr.zeffut.structuresremover.scan.RegionIndex;
 import fr.zeffut.structuresremover.scan.ScanJob;
 import fr.zeffut.structuresremover.scan.ScanOptions;
 import fr.zeffut.structuresremover.scan.Target;
+import fr.zeffut.structuresremover.selection.PlayerSelection;
+import fr.zeffut.structuresremover.selection.SelectionManager;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -47,9 +49,24 @@ final class DevSelfTest {
 		});
 	}
 
+	/** A stand-in for a player, so the harness can exercise the per-player storage. */
+	private static final UUID FAKE_PLAYER = UUID.fromString("00000000-0000-0000-0000-0000000000ff");
+
 	private static void run(MinecraftServer server) throws Exception {
 		ServerWorld world = server.getOverworld();
 		int y = world.getBottomY() + 5;
+
+		String persist = System.getProperty("structuresremover.persist", "");
+
+		if (persist.equals("write")) {
+			writePersistentData(world);
+			return;
+		}
+
+		if (persist.equals("verify")) {
+			verifyPersistentData(world);
+			return;
+		}
 
 		// Each scenario uses a different block so the structures of one are not copies of another.
 
@@ -73,6 +90,78 @@ final class DevSelfTest {
 		check(world, "noCopies", new BlockPos(0, y + 32, 0), List.of(), Blocks.DIAMOND_BLOCK, false);
 
 		diagnoseFlush(world);
+	}
+
+	/** Phase 1: fill a player's slot with data, then let the shutdown hook write it out. */
+	private static void writePersistentData(ServerWorld world) throws Exception {
+		int y = world.getBottomY() + 5;
+
+		PlayerSelection selection = SelectionManager.get(FAKE_PLAYER);
+		selection.setBox(world.getRegistryKey(), new BlockBox(1, y, 3, 4, y + 3, 6));
+		selection.setWandEnabled(true);
+		selection.setOutlineShown(false);
+
+		ScanOptions options = SelectionManager.options(FAKE_PLAYER);
+		options.rotations = true;
+		options.tolerance = 77;
+		options.maxMatches = 12;
+		options.fill = Blocks.STONE.getDefaultState();
+
+		stamp(world, new BlockPos(0, y, 0), Blocks.OAK_PLANKS);
+		stamp(world, new BlockPos(0, y + 8, 0), Blocks.BRICKS);
+
+		SelectionManager.patterns(FAKE_PLAYER).put("house", new SavedPattern("house", world.getRegistryKey(),
+				StructurePattern.capture(world, BlockBox.create(new BlockPos(0, y, 0), new BlockPos(2, y + 2, 2)), true)));
+		SelectionManager.patterns(FAKE_PLAYER).put("tower", new SavedPattern("tower", world.getRegistryKey(),
+				StructurePattern.capture(world, BlockBox.create(new BlockPos(0, y + 8, 0), new BlockPos(2, y + 10, 2)), true)));
+
+		SelectionManager.markDirty(FAKE_PLAYER);
+		StructuresRemover.LOGGER.info("[selftest] persist/write: stored selection, 2 structures and options");
+	}
+
+	/** Phase 2: a fresh server start must have restored all of it before anything else runs. */
+	private static void verifyPersistentData(ServerWorld world) {
+		int y = world.getBottomY() + 5;
+		PlayerSelection selection = SelectionManager.get(FAKE_PLAYER);
+		ScanOptions options = SelectionManager.options(FAKE_PLAYER);
+		var patterns = SelectionManager.patterns(FAKE_PLAYER);
+
+		expect("selection restored", selection.isComplete());
+		expect("selection box", selection.toBox() != null
+				&& selection.toBox().getMinX() == 1 && selection.toBox().getMaxZ() == 6
+				&& selection.toBox().getMinY() == y);
+		expect("selection world", world.getRegistryKey().equals(selection.getWorld()));
+		expect("wand flag", selection.isWandEnabled());
+		expect("outline flag", !selection.isOutlineShown());
+
+		expect("option rotations", options.rotations);
+		expect("option tolerance", options.tolerance == 77);
+		expect("option maxMatches", options.maxMatches == 12);
+		expect("option fill", options.fill.isOf(Blocks.STONE));
+
+		expect("two structures", patterns.size() == 2);
+		expect("structure names", patterns.containsKey("house") && patterns.containsKey("tower"));
+
+		SavedPattern house = patterns.get("house");
+
+		if (house != null) {
+			expect("house size", house.pattern().getSizeX() == 3 && house.pattern().getSizeY() == 3
+					&& house.pattern().getSizeZ() == 3);
+			expect("house solid count", house.pattern().getSolidCount() == 27);
+			expect("house origin", house.pattern().getOrigin().equals(new BlockPos(0, y, 0)));
+			expect("house blocks", house.pattern().stateAt(1, 1, 1).isOf(Blocks.OAK_PLANKS));
+			expect("house world", world.getRegistryKey().equals(house.world()));
+		}
+
+		SavedPattern tower = patterns.get("tower");
+
+		if (tower != null) {
+			expect("tower blocks", tower.pattern().stateAt(0, 0, 0).isOf(Blocks.BRICKS));
+		}
+	}
+
+	private static void expect(String what, boolean ok) {
+		StructuresRemover.LOGGER.info("[selftest] persist/verify: {} {}", ok ? "OK" : "*** FAIL ***", what);
 	}
 
 	/**

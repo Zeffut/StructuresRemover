@@ -130,6 +130,7 @@ public final class StructuresRemoverCommand {
 											ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 											ScanOptions options = SelectionManager.options(player.getUuid());
 											options.fill = BlockStateArgumentType.getBlockState(context, "block").getBlockState();
+											SelectionManager.markDirty(player.getUuid());
 											return feedback(context, "fill = " + options.fill.getBlock().getName().getString());
 										}))))
 				.then(scanCommand("scan", false))
@@ -177,6 +178,7 @@ public final class StructuresRemoverCommand {
 			ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 			boolean value = BoolArgumentType.getBool(context, "value");
 			setter.accept(SelectionManager.options(player.getUuid()), value);
+			SelectionManager.markDirty(player.getUuid());
 			return feedback(context, name + " = " + value);
 		}));
 	}
@@ -186,6 +188,7 @@ public final class StructuresRemoverCommand {
 			ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 			int value = IntegerArgumentType.getInteger(context, "value");
 			setter.accept(SelectionManager.options(player.getUuid()), value);
+			SelectionManager.markDirty(player.getUuid());
 			return feedback(context, name + " = " + value);
 		}));
 	}
@@ -196,6 +199,7 @@ public final class StructuresRemoverCommand {
 		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 		PlayerSelection selection = SelectionManager.get(player.getUuid());
 		selection.setWandEnabled(!selection.isWandEnabled());
+		SelectionManager.markDirty(player.getUuid());
 
 		if (selection.isWandEnabled()) {
 			if (!player.getInventory().contains(stack -> stack.isOf(WandHandler.WAND_ITEM))) {
@@ -221,6 +225,7 @@ public final class StructuresRemoverCommand {
 			selection.setPos2(player.getEntityWorld().getRegistryKey(), pos);
 		}
 
+		SelectionManager.markDirty(player.getUuid());
 		return feedback(context, "Corner " + (first ? "1" : "2") + " set to "
 				+ pos.getX() + " " + pos.getY() + " " + pos.getZ() + describeSize(selection));
 	}
@@ -253,6 +258,7 @@ public final class StructuresRemoverCommand {
 		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 		boolean value = BoolArgumentType.getBool(context, "value");
 		SelectionManager.get(player.getUuid()).setOutlineShown(value);
+		SelectionManager.markDirty(player.getUuid());
 		return feedback(context, "Selection outline " + (value ? "shown." : "hidden."));
 	}
 
@@ -303,6 +309,7 @@ public final class StructuresRemoverCommand {
 		maxY = Math.min(maxY, world.getTopYInclusive());
 
 		selection.setBox(selection.getWorld(), new BlockBox(minX, minY, minZ, maxX, maxY, maxZ));
+		SelectionManager.markDirty(player.getUuid());
 		return feedback(context, "Selection is now" + describeSize(selection) + ".");
 	}
 
@@ -338,6 +345,7 @@ public final class StructuresRemoverCommand {
 				origin.getX() + pattern.getSizeX() - 1,
 				origin.getY() + pattern.getSizeY() - 1,
 				origin.getZ() + pattern.getSizeZ() - 1));
+		SelectionManager.markDirty(player.getUuid());
 
 		return feedback(context, "Trimmed to" + describeSize(selection) + " — "
 				+ pattern.getSolidCount() + " blocks.");
@@ -367,6 +375,7 @@ public final class StructuresRemoverCommand {
 	private static int clearSelection(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
 		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 		SelectionManager.get(player.getUuid()).clear();
+		SelectionManager.markDirty(player.getUuid());
 		return feedback(context, "Selection cleared.");
 	}
 
@@ -406,6 +415,7 @@ public final class StructuresRemoverCommand {
 
 		String chosen = name != null ? name : nextFreeName(patterns);
 		patterns.put(chosen, new SavedPattern(chosen, selection.getWorld(), pattern));
+		SelectionManager.markDirty(player.getUuid());
 
 		return feedback(context, "Saved '" + chosen + "' — " + pattern.getSizeX() + "x" + pattern.getSizeY()
 				+ "x" + pattern.getSizeZ() + ", " + pattern.getSolidCount() + " blocks. "
@@ -450,6 +460,7 @@ public final class StructuresRemoverCommand {
 			return error(context, "No saved structure called '" + name + "'.");
 		}
 
+		SelectionManager.markDirty(player.getUuid());
 		return feedback(context, "Dropped '" + name + "'.");
 	}
 
@@ -457,6 +468,7 @@ public final class StructuresRemoverCommand {
 		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 		int count = SelectionManager.patterns(player.getUuid()).size();
 		SelectionManager.patterns(player.getUuid()).clear();
+		SelectionManager.markDirty(player.getUuid());
 		return feedback(context, "Dropped " + count + " saved structure(s).");
 	}
 
