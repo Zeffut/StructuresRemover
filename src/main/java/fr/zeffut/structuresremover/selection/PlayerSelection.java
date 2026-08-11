@@ -19,6 +19,7 @@ public final class PlayerSelection {
 	private RegistryKey<World> world;
 
 	private boolean wandEnabled;
+	private boolean outlineShown = true;
 
 	public boolean isWandEnabled() {
 		return this.wandEnabled;
@@ -63,6 +64,21 @@ public final class PlayerSelection {
 
 		this.world = world;
 		this.pos2 = pos.toImmutable();
+	}
+
+	/** Replaces both corners at once, used by expand/contract/trim. */
+	public void setBox(RegistryKey<World> world, BlockBox box) {
+		this.world = world;
+		this.pos1 = new BlockPos(box.getMinX(), box.getMinY(), box.getMinZ());
+		this.pos2 = new BlockPos(box.getMaxX(), box.getMaxY(), box.getMaxZ());
+	}
+
+	public boolean isOutlineShown() {
+		return this.outlineShown;
+	}
+
+	public void setOutlineShown(boolean shown) {
+		this.outlineShown = shown;
 	}
 
 	public void clear() {

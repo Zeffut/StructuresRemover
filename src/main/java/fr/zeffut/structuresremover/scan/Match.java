@@ -4,8 +4,8 @@ import fr.zeffut.structuresremover.pattern.PatternVariant;
 import net.minecraft.util.math.BlockPos;
 
 /**
- * One copy of the pattern found in the world, identified by the corner it starts at and the
- * orientation it was found in.
+ * One copy found in the world: which structure it is, where its corner sits, and in which
+ * orientation it was found.
  */
-public record Match(BlockPos origin, PatternVariant variant) {
+public record Match(BlockPos origin, PatternVariant variant, String patternName) {
 }

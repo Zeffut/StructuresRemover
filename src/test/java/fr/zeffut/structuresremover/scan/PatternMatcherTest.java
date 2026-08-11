@@ -74,7 +74,11 @@ class PatternMatcherTest {
 		states[(1 * sizeZ + 2) * sizeX + 1] = Blocks.FURNACE.getDefaultState()
 				.with(HorizontalFacingBlock.FACING, Direction.NORTH);
 
-		return StructurePattern.of(sizeX, sizeY, sizeZ, states, BlockPos.ORIGIN);
+		try {
+			return StructurePattern.of(sizeX, sizeY, sizeZ, states, BlockPos.ORIGIN);
+		} catch (StructurePattern.PatternException exception) {
+			throw new AssertionError(exception);
+		}
 	}
 
 	/** Stamps a variant into the fake world with its corner at the given position. */

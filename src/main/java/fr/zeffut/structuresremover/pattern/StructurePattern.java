@@ -59,9 +59,12 @@ public final class StructurePattern {
 	/**
 	 * Reads every block of {@code box} out of {@code world}.
 	 *
+	 * @param trim shrink the pattern to the blocks it actually contains, dropping empty margins.
+	 *             This is what lets a selection be drawn roughly around a structure instead of
+	 *             exactly on its corners.
 	 * @throws PatternException if the selection is too large or holds nothing but air
 	 */
-	public static StructurePattern capture(World world, BlockBox box) throws PatternException {
+	public static StructurePattern capture(World world, BlockBox box, boolean trim) throws PatternException {
 		int sizeX = box.getBlockCountX();
 		int sizeY = box.getBlockCountY();
 		int sizeZ = box.getBlockCountZ();
@@ -74,18 +77,58 @@ public final class StructurePattern {
 
 		BlockState[] states = new BlockState[(int) cells];
 		BlockPos.Mutable cursor = new BlockPos.Mutable();
-		int solidCount = 0;
 
 		for (int y = 0; y < sizeY; y++) {
 			for (int z = 0; z < sizeZ; z++) {
 				for (int x = 0; x < sizeX; x++) {
 					cursor.set(box.getMinX() + x, box.getMinY() + y, box.getMinZ() + z);
-					BlockState state = world.getBlockState(cursor);
-					states[index(x, y, z, sizeX, sizeZ)] = state;
+					states[index(x, y, z, sizeX, sizeZ)] = world.getBlockState(cursor);
+				}
+			}
+		}
 
-					if (!state.isAir()) {
-						solidCount++;
+		return of(sizeX, sizeY, sizeZ, states,
+				new BlockPos(box.getMinX(), box.getMinY(), box.getMinZ()), trim);
+	}
+
+	/**
+	 * Builds a pattern straight from an array of states, in the same {@code (y, z, x)} order
+	 * {@link #capture} uses. Exists so the transform maths can be exercised without a world.
+	 */
+	public static StructurePattern of(int sizeX, int sizeY, int sizeZ, BlockState[] states, BlockPos origin)
+			throws PatternException {
+		return of(sizeX, sizeY, sizeZ, states, origin, false);
+	}
+
+	/**
+	 * @param trim shrink to the smallest box containing every non-air cell, moving the origin with
+	 *             it. This is what lets a selection be drawn roughly around a structure.
+	 * @throws PatternException if there is not a single non-air block
+	 */
+	public static StructurePattern of(int sizeX, int sizeY, int sizeZ, BlockState[] states, BlockPos origin,
+			boolean trim) throws PatternException {
+		int solidCount = 0;
+		int minX = Integer.MAX_VALUE;
+		int minY = Integer.MAX_VALUE;
+		int minZ = Integer.MAX_VALUE;
+		int maxX = Integer.MIN_VALUE;
+		int maxY = Integer.MIN_VALUE;
+		int maxZ = Integer.MIN_VALUE;
+
+		for (int y = 0; y < sizeY; y++) {
+			for (int z = 0; z < sizeZ; z++) {
+				for (int x = 0; x < sizeX; x++) {
+					if (states[index(x, y, z, sizeX, sizeZ)].isAir()) {
+						continue;
 					}
+
+					solidCount++;
+					minX = Math.min(minX, x);
+					minY = Math.min(minY, y);
+					minZ = Math.min(minZ, z);
+					maxX = Math.max(maxX, x);
+					maxY = Math.max(maxY, y);
+					maxZ = Math.max(maxZ, z);
 				}
 			}
 		}
@@ -94,24 +137,27 @@ public final class StructurePattern {
 			throw new PatternException("Selection contains only air.");
 		}
 
-		return new StructurePattern(sizeX, sizeY, sizeZ, states,
-				solidCount, new BlockPos(box.getMinX(), box.getMinY(), box.getMinZ()));
-	}
+		int trimmedX = maxX - minX + 1;
+		int trimmedY = maxY - minY + 1;
+		int trimmedZ = maxZ - minZ + 1;
 
-	/**
-	 * Builds a pattern straight from an array of states, in the same {@code (y, z, x)} order
-	 * {@link #capture} uses. Exists so the transform maths can be exercised without a world.
-	 */
-	public static StructurePattern of(int sizeX, int sizeY, int sizeZ, BlockState[] states, BlockPos origin) {
-		int solidCount = 0;
+		if (!trim || (trimmedX == sizeX && trimmedY == sizeY && trimmedZ == sizeZ)) {
+			return new StructurePattern(sizeX, sizeY, sizeZ, states.clone(), solidCount, origin);
+		}
 
-		for (BlockState state : states) {
-			if (!state.isAir()) {
-				solidCount++;
+		BlockState[] trimmed = new BlockState[trimmedX * trimmedY * trimmedZ];
+
+		for (int y = 0; y < trimmedY; y++) {
+			for (int z = 0; z < trimmedZ; z++) {
+				for (int x = 0; x < trimmedX; x++) {
+					trimmed[index(x, y, z, trimmedX, trimmedZ)] =
+							states[index(minX + x, minY + y, minZ + z, sizeX, sizeZ)];
+				}
 			}
 		}
 
-		return new StructurePattern(sizeX, sizeY, sizeZ, states.clone(), solidCount, origin);
+		return new StructurePattern(trimmedX, trimmedY, trimmedZ, trimmed, solidCount,
+				origin.add(minX, minY, minZ));
 	}
 
 	public BlockState stateAt(int x, int y, int z) {

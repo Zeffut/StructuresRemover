@@ -1,7 +1,6 @@
 package fr.zeffut.structuresremover.scan;
 
 import fr.zeffut.structuresremover.pattern.PatternVariant;
-import fr.zeffut.structuresremover.pattern.StructurePattern;
 import fr.zeffut.structuresremover.undo.UndoManager;
 import fr.zeffut.structuresremover.undo.UndoRecord;
 import fr.zeffut.structuresremover.util.Chat;
@@ -24,6 +23,7 @@ import net.minecraft.world.chunk.ChunkSection;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,12 +40,12 @@ public final class ScanJob implements Job {
 
 	private final ServerWorld world;
 	private final UUID owner;
-	private final Map<BlockState, List<PatternVariant>> variantsByAnchor = new HashMap<>();
+	private final Map<BlockState, List<Target.Candidate>> candidatesByAnchor = new HashMap<>();
+	private final int targetCount;
 	private final ScanOptions options;
 	private final boolean removeMode;
 	private final ChunkSupplier chunks;
 	private final WorldReader reader;
-	private final BlockPos patternOrigin;
 
 	private final List<Match> matches = new ArrayList<>();
 	private final LongOpenHashSet claimedOrigins = new LongOpenHashSet();
@@ -60,7 +60,7 @@ public final class ScanJob implements Job {
 	private long totalBlocksToChange;
 	private UndoRecord undo;
 
-	public ScanJob(ServerWorld world, UUID owner, StructurePattern pattern, List<PatternVariant> variants,
+	public ScanJob(ServerWorld world, UUID owner, List<Target> targets,
 			ScanOptions options, boolean removeMode, ChunkSupplier chunks, RegionIndex regionIndex) {
 		this.world = world;
 		this.owner = owner;
@@ -68,10 +68,16 @@ public final class ScanJob implements Job {
 		this.removeMode = removeMode;
 		this.chunks = chunks;
 		this.reader = new WorldReader(world, regionIndex);
-		this.patternOrigin = pattern.getOrigin();
+		this.targetCount = targets.size();
 
-		for (PatternVariant variant : variants) {
-			this.variantsByAnchor.computeIfAbsent(variant.anchorState(), state -> new ArrayList<>()).add(variant);
+		// Every orientation of every structure is filed under the block the scan will look for, so
+		// a single pass over the world hunts them all at once.
+		for (Target target : targets) {
+			for (PatternVariant variant : target.variants()) {
+				this.candidatesByAnchor
+						.computeIfAbsent(variant.anchorState(), state -> new ArrayList<>())
+						.add(new Target.Candidate(target, variant));
+			}
 		}
 
 		if (removeMode) {
@@ -178,7 +184,7 @@ public final class ScanJob implements Job {
 
 			// Palette-level rejection: if the section never stores an anchor state, nothing inside
 			// it can start a copy, and we skip 4096 block reads.
-			if (!section.hasAny(this.variantsByAnchor::containsKey)) {
+			if (!section.hasAny(this.candidatesByAnchor::containsKey)) {
 				continue;
 			}
 
@@ -188,7 +194,7 @@ public final class ScanJob implements Job {
 				for (int z = 0; z < 16; z++) {
 					for (int x = 0; x < 16; x++) {
 						BlockState state = section.getBlockState(x, y, z);
-						List<PatternVariant> candidates = this.variantsByAnchor.get(state);
+						List<Target.Candidate> candidates = this.candidatesByAnchor.get(state);
 
 						if (candidates == null) {
 							continue;
@@ -206,8 +212,9 @@ public final class ScanJob implements Job {
 		}
 	}
 
-	private void testCandidates(List<PatternVariant> candidates, int hitX, int hitY, int hitZ) {
-		for (PatternVariant variant : candidates) {
+	private void testCandidates(List<Target.Candidate> candidates, int hitX, int hitY, int hitZ) {
+		for (Target.Candidate candidate : candidates) {
+			PatternVariant variant = candidate.variant();
 			int originX = hitX - variant.anchorX();
 			int originY = hitY - variant.anchorY();
 			int originZ = hitZ - variant.anchorZ();
@@ -228,17 +235,20 @@ public final class ScanJob implements Job {
 				continue;
 			}
 
+			Target target = candidate.target();
+
 			if (this.options.keepOriginal
-					&& originX == this.patternOrigin.getX()
-					&& originY == this.patternOrigin.getY()
-					&& originZ == this.patternOrigin.getZ()) {
+					&& target.world().equals(this.world.getRegistryKey())
+					&& originX == target.origin().getX()
+					&& originY == target.origin().getY()
+					&& originZ == target.origin().getZ()) {
 				// Still claim it, so a later orientation does not rediscover the original.
 				this.claimedOrigins.add(key);
 				continue;
 			}
 
 			this.claimedOrigins.add(key);
-			this.matches.add(new Match(new BlockPos(originX, originY, originZ), variant));
+			this.matches.add(new Match(new BlockPos(originX, originY, originZ), variant, target.name()));
 			return;
 		}
 	}
@@ -381,17 +391,33 @@ public final class ScanJob implements Job {
 		Chat.toPlayer(this.world.getServer(), this.owner, summary);
 
 		if (!this.matches.isEmpty()) {
+			if (this.targetCount > 1) {
+				Map<String, Integer> perPattern = new LinkedHashMap<>();
+
+				for (Match match : this.matches) {
+					perPattern.merge(match.patternName(), 1, Integer::sum);
+				}
+
+				for (Map.Entry<String, Integer> entry : perPattern.entrySet()) {
+					Chat.toPlayer(this.world.getServer(), this.owner, Text.literal("  " + entry.getKey() + ": ")
+							.formatted(Formatting.GRAY)
+							.append(Text.literal(entry.getValue() + " copies").formatted(Formatting.AQUA)));
+				}
+			}
+
 			int shown = Math.min(this.matches.size(), 10);
 
 			for (int i = 0; i < shown; i++) {
 				Match match = this.matches.get(i);
 				BlockPos origin = match.origin();
+				String orientation = this.targetCount > 1
+						? match.patternName() + ", " + match.variant().describeOrientation()
+						: match.variant().describeOrientation();
 				Chat.toPlayer(this.world.getServer(), this.owner, Text.literal("  • ")
 						.formatted(Formatting.DARK_GRAY)
 						.append(Text.literal(origin.getX() + " " + origin.getY() + " " + origin.getZ())
 								.formatted(Formatting.WHITE))
-						.append(Text.literal(" (" + match.variant().describeOrientation() + ")")
-								.formatted(Formatting.DARK_GRAY)));
+						.append(Text.literal(" (" + orientation + ")").formatted(Formatting.DARK_GRAY)));
 			}
 
 			if (this.matches.size() > shown) {
@@ -412,7 +438,8 @@ public final class ScanJob implements Job {
 	public Text describe() {
 		int percent = MathHelper.clamp((int) (this.progress() * 100), 0, 100);
 		String mode = this.removeMode ? "remove" : "scan";
-		return Text.literal(mode + " in " + this.world.getRegistryKey().getValue()
+		return Text.literal(mode + " " + this.targetCount + " structure(s) in "
+				+ this.world.getRegistryKey().getValue()
 				+ " — " + percent + "% (" + this.phase.name().toLowerCase() + "), "
 				+ this.matches.size() + " copies, " + this.chunks.visited() + " chunks visited");
 	}

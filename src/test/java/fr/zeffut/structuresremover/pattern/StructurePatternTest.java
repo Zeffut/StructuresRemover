@@ -18,6 +18,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StructurePatternTest {
@@ -28,7 +29,11 @@ class StructurePatternTest {
 	}
 
 	private static StructurePattern pattern(int sizeX, int sizeY, int sizeZ, BlockState[] states) {
-		return StructurePattern.of(sizeX, sizeY, sizeZ, states, BlockPos.ORIGIN);
+		try {
+			return StructurePattern.of(sizeX, sizeY, sizeZ, states, BlockPos.ORIGIN);
+		} catch (StructurePattern.PatternException exception) {
+			throw new AssertionError(exception);
+		}
 	}
 
 	private static BlockState[] filled(int cells, BlockState state) {
@@ -127,6 +132,40 @@ class StructurePatternTest {
 			assertSame(variant.anchorState(),
 					variant.stateAt(variant.anchorX(), variant.anchorY(), variant.anchorZ()));
 		}
+	}
+
+	@Test
+	void trimmingDropsTheEmptyMarginAndMovesTheOrigin() throws StructurePattern.PatternException {
+		// A 5x3x5 selection holding a single block at (3, 1, 2): a sloppy selection around one block.
+		BlockState[] states = filled(5 * 3 * 5, Blocks.AIR.getDefaultState());
+		states[index(3, 1, 2, 5, 5)] = Blocks.BEACON.getDefaultState();
+
+		StructurePattern trimmed = StructurePattern.of(5, 3, 5, states, new BlockPos(100, 64, -20), true);
+
+		assertEquals(1, trimmed.getSizeX());
+		assertEquals(1, trimmed.getSizeY());
+		assertEquals(1, trimmed.getSizeZ());
+		assertEquals(1, trimmed.getSolidCount());
+		// The origin follows the content, so the copy the pattern came from is still identified.
+		assertEquals(new BlockPos(103, 65, -18), trimmed.getOrigin());
+		assertTrue(trimmed.stateAt(0, 0, 0).isOf(Blocks.BEACON));
+	}
+
+	@Test
+	void trimmingLeavesATightSelectionAlone() throws StructurePattern.PatternException {
+		BlockState[] states = filled(2 * 2 * 2, Blocks.STONE.getDefaultState());
+		StructurePattern trimmed = StructurePattern.of(2, 2, 2, states, new BlockPos(7, 8, 9), true);
+
+		assertEquals(2, trimmed.getSizeX());
+		assertEquals(new BlockPos(7, 8, 9), trimmed.getOrigin());
+	}
+
+	@Test
+	void anAllAirSelectionIsRejected() {
+		BlockState[] states = filled(2 * 2 * 2, Blocks.AIR.getDefaultState());
+
+		assertThrows(StructurePattern.PatternException.class,
+				() -> StructurePattern.of(2, 2, 2, states, BlockPos.ORIGIN, true));
 	}
 
 	@Test

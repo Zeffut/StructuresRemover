@@ -3,6 +3,7 @@ package fr.zeffut.structuresremover;
 import fr.zeffut.structuresremover.command.StructuresRemoverCommand;
 import fr.zeffut.structuresremover.scan.JobManager;
 import fr.zeffut.structuresremover.selection.SelectionManager;
+import fr.zeffut.structuresremover.selection.SelectionRenderer;
 import fr.zeffut.structuresremover.selection.WandHandler;
 import fr.zeffut.structuresremover.undo.UndoManager;
 import net.fabricmc.api.ModInitializer;
@@ -29,6 +30,7 @@ public class StructuresRemover implements ModInitializer {
 				StructuresRemoverCommand.register(dispatcher, registryAccess));
 
 		ServerTickEvents.END_SERVER_TICK.register(JobManager::tick);
+		ServerTickEvents.END_SERVER_TICK.register(SelectionRenderer::tick);
 
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			// A half-applied removal must not be left dangling across a restart.

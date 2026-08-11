@@ -20,15 +20,42 @@ Toutes les commandes demandent le niveau d'opérateur **2**.
 
 ## Utilisation
 
+### Sélectionner
+
 ```
 /sr wand                     active la baguette (donne une hache en bois)
                              clic gauche  -> coin 1
                              clic droit   -> coin 2
-/sr pos1 [x y z]             définit un coin sans la baguette (par défaut : ta position)
+/sr pos1 [x y z]             coin sur le bloc que tu VISES (jusqu'à 128 blocs)
 /sr pos2 [x y z]
+/sr expand <n> [direction]   agrandit la sélection (direction : up/down/north/... ou all)
+/sr contract <n> [direction] la rétrécit
+/sr trim                     la resserre pile sur les blocs, sans la marge d'air
 /sr sel                      affiche la sélection courante
 /sr clear                    efface la sélection
+/sr outline <true|false>     contour en particules (activé par défaut)
+```
 
+La sélection est affichée en permanence par un contour de particules vertes, visible depuis un
+client vanilla. `/sr pos1` sans argument vise le bloc que tu regardes : plus besoin d'aller te
+placer sur chaque coin.
+
+### Mettre plusieurs structures en file
+
+```
+/sr add [nom]                met la sélection de côté (nom auto : structure1, structure2…)
+/sr list                     liste les structures en file
+/sr forget <nom> | all       en retire une, ou tout
+```
+
+Tu peux sélectionner une maison, `/sr add maison`, sélectionner une tour, `/sr add tour`, puis
+lancer **un seul** scan qui cherche les deux en même temps. Limite : 16 structures.
+
+Si la file est vide, `/sr scan` et `/sr remove` utilisent simplement la sélection courante.
+
+### Chercher et supprimer
+
+```
 /sr scan radius <chunks>     compte les copies sans rien toucher
 /sr scan world               idem, sur toute la dimension
 /sr remove radius <chunks>   supprime les copies trouvées
@@ -51,6 +78,9 @@ Déroulé classique :
 /sr remove world
 ```
 
+Le scan tourne toujours dans **la dimension où tu te trouves**. Une structure capturée dans le
+Nether peut donc être cherchée dans l'Overworld.
+
 `scan` est volontairement non destructif : **fais toujours un `scan` avant un `remove`**, et fais
 une sauvegarde de ta map.
 
@@ -58,10 +88,10 @@ une sauvegarde de ta map.
 
 | Option | Défaut | Effet |
 | --- | --- | --- |
-| `rotations` | `true` | cherche aussi les copies tournées de 90°, 180°, 270° |
+| `rotations` | `false` | cherche aussi les copies tournées de 90°, 180°, 270° |
 | `mirrors` | `false` | cherche aussi les copies en miroir |
 | `tolerance` | `100` | pourcentage de blocs qui doivent correspondre (100 = copie exacte) |
-| `matchair` | `true` | l'air de la sélection doit aussi être de l'air dans le monde |
+| `matchair` | `false` | l'air de la sélection doit aussi être de l'air dans le monde |
 | `fill` | `air` | bloc mis à la place de la structure supprimée |
 | `keeporiginal` | `true` | ne touche pas à la copie d'où vient la sélection |
 | `removeentities` | `false` | supprime aussi les entités présentes dans la copie (cadres, armor stands…) |
@@ -69,21 +99,31 @@ une sauvegarde de ta map.
 | `chunkspertick` | `8` | chunks lus par tick pendant le scan — à baisser si le serveur lag |
 | `blockspertick` | `20000` | blocs écrits par tick pendant la suppression |
 
-Baisser `tolerance` sert quand les structures ont été un peu modifiées ou envahies par la
-végétation. Attention : plus la tolérance est basse, plus le risque de faux positif est grand.
+Par défaut le mod cherche donc la structure **exacte, dans la même orientation**, en **ignorant
+l'air** : seuls les blocs de la structure comptent. Une copie contre laquelle un arbre a poussé
+reste une copie, et une sélection tracée large autour du bâtiment marche quand même.
+
+Mettre `matchair true` rend le mod plus strict : le vide autour de la structure doit alors être
+vide dans le monde aussi.
+
+Baisser `tolerance` sert quand les structures ont été un peu modifiées. Attention : plus la
+tolérance est basse, plus le risque de faux positif est grand.
 
 ## Comment ça marche
 
 1. **Capture** — la sélection est lue bloc par bloc et stockée comme un tableau de block states.
-   Le contenu des block entities (coffres, panneaux…) est ignoré : deux maisons dont les coffres
-   ont un loot différent comptent quand même comme identiques.
-2. **Variantes** — le pattern est décliné dans les 4 rotations et, si demandé, les versions
-   miroir. Les variantes identiques (structure symétrique) sont éliminées.
+   Tant que `matchair` est à `false`, le pattern est automatiquement rogné sur les blocs qu'il
+   contient réellement : la marge d'air autour est jetée. Le contenu des block entities (coffres,
+   panneaux…) est ignoré : deux maisons dont les coffres ont un loot différent comptent quand même
+   comme identiques.
+2. **Variantes** — si les rotations/miroirs sont demandés, le pattern est décliné dans les
+   orientations correspondantes. Les variantes identiques (structure symétrique) sont éliminées.
 3. **Ancre** — pour chaque variante, le mod choisit le bloc le plus rare de la structure et évite
    les blocs de terrain courants (pierre, terre, eau…). C'est ce bloc que le scan cherche.
-4. **Scan** — les chunks sont parcourus par petits paquets à chaque tick serveur. Une section de
-   chunk dont la palette ne contient pas l'ancre est sautée d'un bloc, sans lire ses 4096 blocs.
-   Chaque occurrence de l'ancre déclenche une comparaison complète du pattern.
+4. **Scan** — les chunks sont parcourus par petits paquets à chaque tick serveur. Toutes les
+   structures en file et toutes leurs orientations sont indexées par leur bloc d'ancre, donc **une
+   seule passe** sur le monde les cherche toutes. Une section de chunk dont la palette ne contient
+   aucune ancre est sautée d'un bloc, sans lire ses 4096 blocs.
 5. **Suppression** — les copies trouvées sont remplacées par le bloc `fill`, sans mises à jour de
    voisinage ni drops, et l'ancien état est mémorisé pour `/sr undo`.
 
@@ -97,10 +137,12 @@ parcourir.
 - L'annulation ne restaure qu'**une seule** opération, et seulement tant que le serveur tourne.
   Au-delà de 4 000 000 de blocs modifiés, l'historique est abandonné et `/sr undo` refuse.
 - La sélection est limitée à 2 000 000 de blocs.
-- `/sr scan world` ne parcourt que la dimension où la sélection a été prise. Le mod force une
+- `/sr scan world` ne parcourt qu'une dimension : celle où tu te trouves. Le mod force une
   sauvegarde du monde avant de démarrer, pour que les chunks encore en mémoire soient bien pris en
   compte.
 - Une seule opération à la fois sur le serveur.
+- Les structures mises en file et les sélections vivent en mémoire : un redémarrage du serveur
+  les efface.
 - Les messages en jeu sont en anglais, pour rester lisibles depuis un client vanilla (pas de
   fichier de langue côté client).
 

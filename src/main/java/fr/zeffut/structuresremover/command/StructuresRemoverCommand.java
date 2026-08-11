@@ -3,11 +3,14 @@ package fr.zeffut.structuresremover.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.tree.LiteralCommandNode;
-import fr.zeffut.structuresremover.pattern.PatternVariant;
+import fr.zeffut.structuresremover.pattern.SavedPattern;
 import fr.zeffut.structuresremover.pattern.StructurePattern;
 import fr.zeffut.structuresremover.scan.ChunkSupplier;
 import fr.zeffut.structuresremover.scan.Job;
@@ -15,6 +18,7 @@ import fr.zeffut.structuresremover.scan.JobManager;
 import fr.zeffut.structuresremover.scan.RegionIndex;
 import fr.zeffut.structuresremover.scan.ScanJob;
 import fr.zeffut.structuresremover.scan.ScanOptions;
+import fr.zeffut.structuresremover.scan.Target;
 import fr.zeffut.structuresremover.scan.UndoJob;
 import fr.zeffut.structuresremover.selection.PlayerSelection;
 import fr.zeffut.structuresremover.selection.SelectionManager;
@@ -33,9 +37,14 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.function.BiConsumer;
 
@@ -49,7 +58,23 @@ public final class StructuresRemoverCommand {
 	/** Operator level 2 (gamemasters), required for every subcommand — this thing rewrites the map. */
 	public static final PermissionCheck PERMISSION_CHECK = CommandManager.GAMEMASTERS_CHECK;
 
+	/** How far {@code /sr pos1} looks for the block the player is aiming at. */
+	public static final double AIM_DISTANCE = 128.0;
+
 	private static final int MAX_RADIUS_CHUNKS = 4096;
+
+	/** Name used when scanning straight from the selection, without saving it first. */
+	private static final String SELECTION_NAME = "selection";
+
+	private static final SuggestionProvider<ServerCommandSource> PATTERN_NAMES = (context, builder) -> {
+		ServerPlayerEntity player = context.getSource().getPlayer();
+
+		if (player != null) {
+			SelectionManager.patterns(player.getUuid()).keySet().forEach(builder::suggest);
+		}
+
+		return builder.buildFuture();
+	};
 
 	private StructuresRemoverCommand() {
 	}
@@ -72,6 +97,22 @@ public final class StructuresRemoverCommand {
 										BlockPosArgumentType.getBlockPos(context, "pos")))))
 				.then(literal("sel").executes(StructuresRemoverCommand::showSelection))
 				.then(literal("clear").executes(StructuresRemoverCommand::clearSelection))
+				.then(literal("outline")
+						.then(argument("value", BoolArgumentType.bool())
+								.executes(StructuresRemoverCommand::setOutline)))
+				.then(literal("trim").executes(StructuresRemoverCommand::trim))
+				.then(resizeCommand("expand", 1))
+				.then(resizeCommand("contract", -1))
+				.then(literal("add")
+						.executes(context -> addPattern(context, null))
+						.then(argument("name", StringArgumentType.word())
+								.executes(context -> addPattern(context, StringArgumentType.getString(context, "name")))))
+				.then(literal("list").executes(StructuresRemoverCommand::listPatterns))
+				.then(literal("forget")
+						.then(literal("all").executes(StructuresRemoverCommand::forgetAll))
+						.then(argument("name", StringArgumentType.word())
+								.suggests(PATTERN_NAMES)
+								.executes(StructuresRemoverCommand::forgetPattern)))
 				.then(literal("options").executes(StructuresRemoverCommand::showOptions))
 				.then(literal("set")
 						.then(boolOption("rotations", (options, value) -> options.rotations = value))
@@ -91,18 +132,8 @@ public final class StructuresRemoverCommand {
 											options.fill = BlockStateArgumentType.getBlockState(context, "block").getBlockState();
 											return feedback(context, "fill = " + options.fill.getBlock().getName().getString());
 										}))))
-				.then(literal("scan")
-						.then(literal("world").executes(context -> start(context, false, true, 0)))
-						.then(literal("radius")
-								.then(argument("chunks", IntegerArgumentType.integer(0, MAX_RADIUS_CHUNKS))
-										.executes(context -> start(context, false, false,
-												IntegerArgumentType.getInteger(context, "chunks"))))))
-				.then(literal("remove")
-						.then(literal("world").executes(context -> start(context, true, true, 0)))
-						.then(literal("radius")
-								.then(argument("chunks", IntegerArgumentType.integer(0, MAX_RADIUS_CHUNKS))
-										.executes(context -> start(context, true, false,
-												IntegerArgumentType.getInteger(context, "chunks"))))))
+				.then(scanCommand("scan", false))
+				.then(scanCommand("remove", true))
 				.then(literal("cancel").executes(StructuresRemoverCommand::cancel))
 				.then(literal("status").executes(StructuresRemoverCommand::status))
 				.then(literal("undo").executes(StructuresRemoverCommand::undo));
@@ -112,6 +143,33 @@ public final class StructuresRemoverCommand {
 				.requires(CommandManager.requirePermissionLevel(PERMISSION_CHECK))
 				.executes(StructuresRemoverCommand::help)
 				.redirect(node));
+	}
+
+	private static LiteralArgumentBuilder<ServerCommandSource> scanCommand(String name, boolean remove) {
+		return literal(name)
+				.then(literal("world").executes(context -> start(context, remove, true, 0)))
+				.then(literal("radius")
+						.then(argument("chunks", IntegerArgumentType.integer(0, MAX_RADIUS_CHUNKS))
+								.executes(context -> start(context, remove, false,
+										IntegerArgumentType.getInteger(context, "chunks")))));
+	}
+
+	/**
+	 * Builds {@code expand} / {@code contract}, which differ only by the sign applied to the amount.
+	 */
+	private static LiteralArgumentBuilder<ServerCommandSource> resizeCommand(String name, int sign) {
+		RequiredArgumentBuilder<ServerCommandSource, Integer> amount =
+				argument("amount", IntegerArgumentType.integer(1, 4096))
+						.executes(context -> resize(context, sign * IntegerArgumentType.getInteger(context, "amount"), null))
+						.then(literal("all").executes(context ->
+								resize(context, sign * IntegerArgumentType.getInteger(context, "amount"), null)));
+
+		for (Direction direction : Direction.values()) {
+			amount.then(literal(direction.asString()).executes(context ->
+					resize(context, sign * IntegerArgumentType.getInteger(context, "amount"), direction)));
+		}
+
+		return literal(name).then(amount);
 	}
 
 	private static LiteralArgumentBuilder<ServerCommandSource> boolOption(String name, BiConsumer<ScanOptions, Boolean> setter) {
@@ -154,7 +212,7 @@ public final class StructuresRemoverCommand {
 	private static int setCorner(CommandContext<ServerCommandSource> context, boolean first, BlockPos explicit)
 			throws CommandSyntaxException {
 		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
-		BlockPos pos = explicit != null ? explicit : player.getBlockPos();
+		BlockPos pos = explicit != null ? explicit : aimedBlock(player);
 		PlayerSelection selection = SelectionManager.get(player.getUuid());
 
 		if (first) {
@@ -167,6 +225,20 @@ public final class StructuresRemoverCommand {
 				+ pos.getX() + " " + pos.getY() + " " + pos.getZ() + describeSize(selection));
 	}
 
+	/**
+	 * The block the player is looking at, falling back to the block under their feet when they are
+	 * aiming at the sky. Pointing is far quicker than walking to each corner.
+	 */
+	private static BlockPos aimedBlock(ServerPlayerEntity player) {
+		HitResult hit = player.raycast(AIM_DISTANCE, 0.0F, false);
+
+		if (hit.getType() == HitResult.Type.BLOCK && hit instanceof BlockHitResult blockHit) {
+			return blockHit.getBlockPos();
+		}
+
+		return player.getBlockPos();
+	}
+
 	private static String describeSize(PlayerSelection selection) {
 		BlockBox box = selection.toBox();
 
@@ -175,6 +247,100 @@ public final class StructuresRemoverCommand {
 		}
 
 		return " (" + box.getBlockCountX() + "x" + box.getBlockCountY() + "x" + box.getBlockCountZ() + ")";
+	}
+
+	private static int setOutline(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		boolean value = BoolArgumentType.getBool(context, "value");
+		SelectionManager.get(player.getUuid()).setOutlineShown(value);
+		return feedback(context, "Selection outline " + (value ? "shown." : "hidden."));
+	}
+
+	/**
+	 * Grows or shrinks the selection. A {@code null} direction means all six faces at once.
+	 */
+	private static int resize(CommandContext<ServerCommandSource> context, int amount, Direction direction)
+			throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		PlayerSelection selection = SelectionManager.get(player.getUuid());
+		BlockBox box = selection.toBox();
+
+		if (box == null) {
+			return error(context, "No complete selection yet.");
+		}
+
+		int minX = box.getMinX();
+		int minY = box.getMinY();
+		int minZ = box.getMinZ();
+		int maxX = box.getMaxX();
+		int maxY = box.getMaxY();
+		int maxZ = box.getMaxZ();
+
+		if (direction == null) {
+			minX -= amount;
+			minY -= amount;
+			minZ -= amount;
+			maxX += amount;
+			maxY += amount;
+			maxZ += amount;
+		} else {
+			switch (direction) {
+				case WEST -> minX -= amount;
+				case EAST -> maxX += amount;
+				case DOWN -> minY -= amount;
+				case UP -> maxY += amount;
+				case NORTH -> minZ -= amount;
+				case SOUTH -> maxZ += amount;
+			}
+		}
+
+		if (minX > maxX || minY > maxY || minZ > maxZ) {
+			return error(context, "That would shrink the selection to nothing.");
+		}
+
+		ServerWorld world = (ServerWorld) player.getEntityWorld();
+		minY = Math.max(minY, world.getBottomY());
+		maxY = Math.min(maxY, world.getTopYInclusive());
+
+		selection.setBox(selection.getWorld(), new BlockBox(minX, minY, minZ, maxX, maxY, maxZ));
+		return feedback(context, "Selection is now" + describeSize(selection) + ".");
+	}
+
+	/**
+	 * Shrinks the selection onto the blocks it actually contains, dropping the empty margin.
+	 */
+	private static int trim(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		PlayerSelection selection = SelectionManager.get(player.getUuid());
+		BlockBox box = selection.toBox();
+
+		if (box == null) {
+			return error(context, "No complete selection yet.");
+		}
+
+		ServerWorld world = context.getSource().getServer().getWorld(selection.getWorld());
+
+		if (world == null) {
+			return error(context, "The dimension the selection was made in is no longer loaded.");
+		}
+
+		StructurePattern pattern;
+
+		try {
+			pattern = StructurePattern.capture(world, box, true);
+		} catch (StructurePattern.PatternException exception) {
+			return error(context, exception.getMessage());
+		}
+
+		BlockPos origin = pattern.getOrigin();
+		selection.setBox(selection.getWorld(), new BlockBox(
+				origin.getX(), origin.getY(), origin.getZ(),
+				origin.getX() + pattern.getSizeX() - 1,
+				origin.getY() + pattern.getSizeY() - 1,
+				origin.getZ() + pattern.getSizeZ() - 1));
+
+		return feedback(context, "Trimmed to" + describeSize(selection) + " — "
+				+ pattern.getSolidCount() + " blocks.");
 	}
 
 	private static int showSelection(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
@@ -202,6 +368,96 @@ public final class StructuresRemoverCommand {
 		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
 		SelectionManager.get(player.getUuid()).clear();
 		return feedback(context, "Selection cleared.");
+	}
+
+	// ---------------------------------------------------------------- saved patterns
+
+	private static int addPattern(CommandContext<ServerCommandSource> context, String name)
+			throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		PlayerSelection selection = SelectionManager.get(player.getUuid());
+		BlockBox box = selection.toBox();
+
+		if (box == null) {
+			return error(context, "No complete selection — mark both corners first.");
+		}
+
+		LinkedHashMap<String, SavedPattern> patterns = SelectionManager.patterns(player.getUuid());
+
+		if (patterns.size() >= SelectionManager.MAX_PATTERNS && (name == null || !patterns.containsKey(name))) {
+			return error(context, "Too many saved structures (limit " + SelectionManager.MAX_PATTERNS
+					+ "). Drop one with /sr forget <name>.");
+		}
+
+		ServerWorld world = context.getSource().getServer().getWorld(selection.getWorld());
+
+		if (world == null) {
+			return error(context, "The dimension the selection was made in is no longer loaded.");
+		}
+
+		ScanOptions options = SelectionManager.options(player.getUuid());
+		StructurePattern pattern;
+
+		try {
+			pattern = StructurePattern.capture(world, box, options.trimsPatterns());
+		} catch (StructurePattern.PatternException exception) {
+			return error(context, exception.getMessage());
+		}
+
+		String chosen = name != null ? name : nextFreeName(patterns);
+		patterns.put(chosen, new SavedPattern(chosen, selection.getWorld(), pattern));
+
+		return feedback(context, "Saved '" + chosen + "' — " + pattern.getSizeX() + "x" + pattern.getSizeY()
+				+ "x" + pattern.getSizeZ() + ", " + pattern.getSolidCount() + " blocks. "
+				+ patterns.size() + " structure(s) queued.");
+	}
+
+	private static String nextFreeName(LinkedHashMap<String, SavedPattern> patterns) {
+		for (int i = 1; ; i++) {
+			String candidate = "structure" + i;
+
+			if (!patterns.containsKey(candidate)) {
+				return candidate;
+			}
+		}
+	}
+
+	private static int listPatterns(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		LinkedHashMap<String, SavedPattern> patterns = SelectionManager.patterns(player.getUuid());
+
+		if (patterns.isEmpty()) {
+			return feedback(context, "No saved structure. /sr scan will use the current selection.");
+		}
+
+		StringBuilder body = new StringBuilder();
+
+		for (SavedPattern saved : patterns.values()) {
+			body.append("\n  • ").append(saved.describe());
+		}
+
+		context.getSource().sendFeedback(() -> Chat.prefixed(
+				Text.literal(patterns.size() + " saved structure(s):").formatted(Formatting.GRAY)
+						.append(Text.literal(body.toString()).formatted(Formatting.WHITE))), false);
+		return 1;
+	}
+
+	private static int forgetPattern(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		String name = StringArgumentType.getString(context, "name");
+
+		if (SelectionManager.patterns(player.getUuid()).remove(name) == null) {
+			return error(context, "No saved structure called '" + name + "'.");
+		}
+
+		return feedback(context, "Dropped '" + name + "'.");
+	}
+
+	private static int forgetAll(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
+		ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+		int count = SelectionManager.patterns(player.getUuid()).size();
+		SelectionManager.patterns(player.getUuid()).clear();
+		return feedback(context, "Dropped " + count + " saved structure(s).");
 	}
 
 	private static int showOptions(CommandContext<ServerCommandSource> context) throws CommandSyntaxException {
@@ -235,36 +491,43 @@ public final class StructuresRemoverCommand {
 			return error(context, "Another operation is already running. Use /sr status or /sr cancel.");
 		}
 
-		PlayerSelection selection = SelectionManager.get(player.getUuid());
-		BlockBox box = selection.toBox();
-
-		if (box == null) {
-			return error(context, "No complete selection — mark both corners with the wand first.");
-		}
-
-		ServerWorld world = context.getSource().getServer().getWorld(selection.getWorld());
-
-		if (world == null) {
-			return error(context, "The dimension the selection was made in is no longer loaded.");
-		}
-
-		if (!wholeWorld && !player.getEntityWorld().getRegistryKey().equals(world.getRegistryKey())) {
-			return error(context, "A radius scan is centred on you, but your selection is in "
-					+ selection.getWorld().getValue() + ". Go back there, or use 'world' instead.");
-		}
-
-		StructurePattern pattern;
-
-		try {
-			pattern = StructurePattern.capture(world, box);
-		} catch (StructurePattern.PatternException exception) {
-			return error(context, exception.getMessage());
-		}
-
 		ScanOptions options = SelectionManager.options(player.getUuid()).copy();
-		List<PatternVariant> variants = pattern.buildVariants(options.rotations, options.mirrors);
-		RegionIndex regionIndex = new RegionIndex(world);
+		List<Target> targets = new ArrayList<>();
+		LinkedHashMap<String, SavedPattern> patterns = SelectionManager.patterns(player.getUuid());
 
+		if (patterns.isEmpty()) {
+			// Nothing saved: fall back to whatever is selected right now, so the quick path stays
+			// a two-click affair.
+			PlayerSelection selection = SelectionManager.get(player.getUuid());
+			BlockBox box = selection.toBox();
+
+			if (box == null) {
+				return error(context, "Nothing to look for — select a structure, or save some with /sr add.");
+			}
+
+			ServerWorld source = context.getSource().getServer().getWorld(selection.getWorld());
+
+			if (source == null) {
+				return error(context, "The dimension the selection was made in is no longer loaded.");
+			}
+
+			try {
+				StructurePattern pattern = StructurePattern.capture(source, box, options.trimsPatterns());
+				targets.add(Target.of(new SavedPattern(SELECTION_NAME, selection.getWorld(), pattern),
+						options.rotations, options.mirrors));
+			} catch (StructurePattern.PatternException exception) {
+				return error(context, exception.getMessage());
+			}
+		} else {
+			for (SavedPattern saved : patterns.values()) {
+				targets.add(Target.of(saved, options.rotations, options.mirrors));
+			}
+		}
+
+		// The scan always runs in the dimension the player is standing in; a pattern captured in
+		// the Nether can perfectly well be hunted in the Overworld.
+		ServerWorld world = (ServerWorld) player.getEntityWorld();
+		RegionIndex regionIndex = new RegionIndex(world);
 		ChunkSupplier supplier;
 
 		if (wholeWorld) {
@@ -275,7 +538,7 @@ public final class StructuresRemoverCommand {
 			ChunkSupplier.WholeWorld wholeWorldSupplier = new ChunkSupplier.WholeWorld(regionIndex);
 
 			if (wholeWorldSupplier.regionCount() == 0) {
-				return error(context, "No region files found for " + selection.getWorld().getValue() + ".");
+				return error(context, "No region files found for " + world.getRegistryKey().getValue() + ".");
 			}
 
 			supplier = wholeWorldSupplier;
@@ -283,16 +546,15 @@ public final class StructuresRemoverCommand {
 			supplier = new ChunkSupplier.Square(regionIndex, player.getChunkPos(), radius);
 		}
 
-		PatternVariant reference = variants.get(0);
+		int orientations = targets.stream().mapToInt(target -> target.variants().size()).sum();
 		context.getSource().sendFeedback(() -> Chat.prefixed(Text.literal(
-						(remove ? "Removing " : "Scanning for ") + "copies of a "
-								+ pattern.getSizeX() + "x" + pattern.getSizeY() + "x" + pattern.getSizeZ()
-								+ " structure (" + pattern.getSolidCount() + " solid blocks, "
-								+ variants.size() + " orientation(s), anchor: "
-								+ reference.anchorState().getBlock().getName().getString() + ")...")
+						(remove ? "Removing " : "Scanning for ") + targets.size() + " structure(s) in "
+								+ world.getRegistryKey().getValue() + " (" + orientations + " orientation(s), "
+								+ (options.matchAir ? "air matched" : "air ignored") + ", tolerance "
+								+ options.tolerance + "%)...")
 				.formatted(Formatting.GRAY)), true);
 
-		JobManager.start(new ScanJob(world, player.getUuid(), pattern, variants, options, remove, supplier, regionIndex));
+		JobManager.start(new ScanJob(world, player.getUuid(), targets, options, remove, supplier, regionIndex));
 		return 1;
 	}
 
@@ -343,15 +605,21 @@ public final class StructuresRemoverCommand {
 
 	private static int help(CommandContext<ServerCommandSource> context) {
 		String body = """
-				/sr wand                  toggle the selection wand
-				/sr pos1 | pos2 [x y z]   set a corner without the wand
-				/sr sel | clear           show or drop the selection
-				/sr scan world|radius <n> count identical copies
-				/sr remove world|radius <n> delete identical copies
-				/sr options               show matching options
-				/sr set <option> <value>  change a matching option
-				/sr status | cancel       follow or stop the running job
-				/sr undo                  restore the last removal""";
+				Selecting
+				  /sr wand                  toggle the selection wand
+				  /sr pos1 | pos2 [x y z]   corner at the block you are aiming at
+				  /sr expand | contract <n> [direction]
+				  /sr trim                  shrink onto the blocks themselves
+				  /sr sel | clear           show or drop the selection
+				  /sr outline <true|false>  particle outline
+				Structures
+				  /sr add [name]            queue the selection as a structure to hunt
+				  /sr list | forget <name>|all
+				Hunting
+				  /sr scan world|radius <n> count copies, changes nothing
+				  /sr remove world|radius <n>
+				  /sr status | cancel | undo
+				  /sr options | set <option> <value>""";
 
 		context.getSource().sendFeedback(() -> Chat.prefixed(
 				Text.literal("StructuresRemover\n").formatted(Formatting.AQUA)
