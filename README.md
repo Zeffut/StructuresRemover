@@ -1,6 +1,6 @@
 # StructuresRemover
 
-Mod Fabric pour Minecraft **1.21.1**. On sélectionne une structure comme avec WorldEdit (hache en
+Mod Fabric pour Minecraft **1.21.11**. On sélectionne une structure comme avec WorldEdit (hache en
 bois, clic gauche / clic droit), puis le mod balaye la map entière et supprime **toutes les copies
 identiques** de cette structure.
 
@@ -12,7 +12,7 @@ des centaines de fois, et l'envie de tout dégager d'un coup.
 Le mod est **server-side** : toute la logique tourne côté serveur et aucun item custom n'est
 enregistré, donc les joueurs peuvent se connecter avec un client vanilla.
 
-1. Installer [Fabric Loader](https://fabricmc.net/use/) 0.16.14+ pour Minecraft 1.21.1
+1. Installer [Fabric Loader](https://fabricmc.net/use/) 0.17+ pour Minecraft 1.21.11
 2. Déposer [Fabric API](https://modrinth.com/mod/fabric-api) dans `mods/`
 3. Déposer `structuresremover-1.0.0.jar` dans `mods/`
 
@@ -112,7 +112,7 @@ parcourir.
 ./gradlew runServer  # serveur de dev
 ```
 
-Java 21 requis.
+Java 21 et Gradle 9.7 (fourni par le wrapper) requis.
 
 ## Licence
 

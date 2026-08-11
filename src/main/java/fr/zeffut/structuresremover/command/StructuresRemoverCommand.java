@@ -25,7 +25,9 @@ import fr.zeffut.structuresremover.util.Chat;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.command.argument.BlockPosArgumentType;
 import net.minecraft.command.argument.BlockStateArgumentType;
+import net.minecraft.command.permission.PermissionCheck;
 import net.minecraft.item.ItemStack;
+import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -44,8 +46,8 @@ import static net.minecraft.server.command.CommandManager.literal;
  * The {@code /structuresremover} (alias {@code /sr}) command tree.
  */
 public final class StructuresRemoverCommand {
-	/** Operator level required for every subcommand — this thing rewrites the map. */
-	public static final int PERMISSION_LEVEL = 2;
+	/** Operator level 2 (gamemasters), required for every subcommand — this thing rewrites the map. */
+	public static final PermissionCheck PERMISSION_CHECK = CommandManager.GAMEMASTERS_CHECK;
 
 	private static final int MAX_RADIUS_CHUNKS = 4096;
 
@@ -54,7 +56,7 @@ public final class StructuresRemoverCommand {
 
 	public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess) {
 		LiteralArgumentBuilder<ServerCommandSource> root = literal("structuresremover")
-				.requires(source -> source.hasPermissionLevel(PERMISSION_LEVEL))
+				.requires(CommandManager.requirePermissionLevel(PERMISSION_CHECK))
 				.executes(StructuresRemoverCommand::help)
 				.then(literal("help").executes(StructuresRemoverCommand::help))
 				.then(literal("wand").executes(StructuresRemoverCommand::toggleWand))
@@ -107,7 +109,7 @@ public final class StructuresRemoverCommand {
 
 		LiteralCommandNode<ServerCommandSource> node = dispatcher.register(root);
 		dispatcher.register(literal("sr")
-				.requires(source -> source.hasPermissionLevel(PERMISSION_LEVEL))
+				.requires(CommandManager.requirePermissionLevel(PERMISSION_CHECK))
 				.executes(StructuresRemoverCommand::help)
 				.redirect(node));
 	}
@@ -156,9 +158,9 @@ public final class StructuresRemoverCommand {
 		PlayerSelection selection = SelectionManager.get(player.getUuid());
 
 		if (first) {
-			selection.setPos1(player.getWorld().getRegistryKey(), pos);
+			selection.setPos1(player.getEntityWorld().getRegistryKey(), pos);
 		} else {
-			selection.setPos2(player.getWorld().getRegistryKey(), pos);
+			selection.setPos2(player.getEntityWorld().getRegistryKey(), pos);
 		}
 
 		return feedback(context, "Corner " + (first ? "1" : "2") + " set to "
@@ -246,7 +248,7 @@ public final class StructuresRemoverCommand {
 			return error(context, "The dimension the selection was made in is no longer loaded.");
 		}
 
-		if (!wholeWorld && !player.getWorld().getRegistryKey().equals(world.getRegistryKey())) {
+		if (!wholeWorld && !player.getEntityWorld().getRegistryKey().equals(world.getRegistryKey())) {
 			return error(context, "A radius scan is centred on you, but your selection is in "
 					+ selection.getWorld().getValue() + ". Go back there, or use 'world' instead.");
 		}

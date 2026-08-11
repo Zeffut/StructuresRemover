@@ -29,7 +29,7 @@ public final class WandHandler {
 
 	public static void register() {
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
-			if (world.isClient || !(player instanceof ServerPlayerEntity serverPlayer) || !isWielding(serverPlayer)) {
+			if (world.isClient() || !(player instanceof ServerPlayerEntity serverPlayer) || !isWielding(serverPlayer)) {
 				return ActionResult.PASS;
 			}
 
@@ -40,7 +40,7 @@ public final class WandHandler {
 		});
 
 		UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
-			if (world.isClient || hand != Hand.MAIN_HAND
+			if (world.isClient() || hand != Hand.MAIN_HAND
 					|| !(player instanceof ServerPlayerEntity serverPlayer) || !isWielding(serverPlayer)) {
 				return ActionResult.PASS;
 			}
@@ -55,7 +55,7 @@ public final class WandHandler {
 
 	private static boolean isWielding(ServerPlayerEntity player) {
 		return SelectionManager.get(player.getUuid()).isWandEnabled()
-				&& player.hasPermissionLevel(StructuresRemoverCommand.PERMISSION_LEVEL)
+				&& StructuresRemoverCommand.PERMISSION_CHECK.allows(player.getPermissions())
 				&& player.getMainHandStack().isOf(WAND_ITEM);
 	}
 

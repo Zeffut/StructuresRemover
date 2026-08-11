@@ -34,7 +34,7 @@ public final class WorldReader implements BlockSource {
 	@Override
 	@Nullable
 	public BlockState getBlockState(int x, int y, int z) {
-		if (y < this.world.getBottomY() || y >= this.world.getTopY()) {
+		if (!this.world.isInHeightLimit(y)) {
 			return null;
 		}
 

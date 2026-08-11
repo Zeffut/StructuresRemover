@@ -218,7 +218,8 @@ public final class ScanJob implements Job {
 				continue;
 			}
 
-			if (originY < this.world.getBottomY() || originY + variant.sizeY() > this.world.getTopY()) {
+			if (!this.world.isInHeightLimit(originY)
+					|| !this.world.isInHeightLimit(originY + variant.sizeY() - 1)) {
 				continue;
 			}
 
