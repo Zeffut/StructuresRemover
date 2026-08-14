@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -50,9 +51,42 @@ final class BulkPurge {
 	};
 
 	private static final String[] NATURAL_SUFFIXES = {
-			"_log", "_wood", "_leaves", "_sapling", "_roots", "_fungus", "_vine", "_mushroom",
-			"_mushroom_block", "_coral", "_coral_block", "_coral_fan", "_flower", "_bush", "_grass",
-			"_fern", "_seagrass", "_kelp", "_bamboo", "_sprouts", "_ore",
+			"_log", "_wood", "_leaves", "_sapling", "_propagule", "_roots", "_fungus", "_vine",
+			"_mushroom", "_mushroom_block", "_coral", "_coral_block", "_coral_fan", "_coral_wall_fan",
+			"_flower", "_bush", "_grass", "_fern", "_seagrass", "_kelp", "_bamboo", "_sprouts",
+			"_ore", "_amethyst_bud", "_amethyst_cluster",
+	};
+
+	/**
+	 * Things that grow, named individually because their identifiers share no useful prefix.
+	 *
+	 * <p>Kept in step with the scanner's list: whatever the scan refuses to treat as part of a
+	 * structure, this refuses to delete. The two are written down twice on purpose — the scan runs
+	 * over the save files and this runs against the live world, and a single mistake in one of them
+	 * should not be enough to take a block out of the ground.
+	 */
+	private static final Set<String> NATURAL_EXACT = Set.of(
+			"air", "cave_air", "void_air", "vine", "kelp", "kelp_plant", "seagrass", "tall_seagrass",
+			"short_grass", "tall_grass", "fern", "large_fern", "dead_bush", "cactus", "sugar_cane",
+			"lily_pad", "snow", "cobweb", "glow_lichen", "sculk", "sculk_vein", "pointed_dripstone",
+			"dripstone_block", "moss_block", "moss_carpet", "bamboo", "sea_pickle",
+			"brown_mushroom_block", "red_mushroom_block", "mushroom_stem", "melon", "pumpkin",
+			"amethyst_block", "budding_amethyst",
+			// Named one by one because they read as worked stone but generate on their own.
+			"smooth_basalt", "gilded_blackstone", "cobblestone", "mossy_cobblestone",
+			"cobbled_deepslate", "infested_stone", "infested_cobblestone", "infested_deepslate",
+			"muddy_mangrove_roots");
+
+	/**
+	 * Marks of a block that went through a crafting table or a stonecutter.
+	 *
+	 * <p>Stone is landscape; stone bricks, stone stairs and deepslate tiles are walls and floors
+	 * somebody laid. Without this the prefixes above swallow them, and the purge quietly refuses to
+	 * remove the very structures it was pointed at.
+	 */
+	private static final String[] WORKED_MARKERS = {
+			"brick", "polished", "chiseled", "cut_", "smooth", "stairs", "slab", "wall", "button",
+			"pressure_plate", "pillar", "tile", "cutter", "cracked", "mossy", "carved", "glazed",
 	};
 
 	private BulkPurge() {
@@ -86,14 +120,26 @@ final class BulkPurge {
 
 		String path = id.getPath();
 
-		for (String prefix : TERRAIN_PREFIXES) {
-			if (path.equals(prefix) || path.startsWith(prefix + "_")) {
+		if (NATURAL_EXACT.contains(path)) {
+			return true;
+		}
+
+		// Before the worked marks, because a few natural blocks are named like worked ones: coral
+		// wall fans grow, and smooth basalt is what a geode is lined with.
+		for (String suffix : NATURAL_SUFFIXES) {
+			if (path.endsWith(suffix)) {
 				return true;
 			}
 		}
 
-		for (String suffix : NATURAL_SUFFIXES) {
-			if (path.endsWith(suffix)) {
+		for (String marker : WORKED_MARKERS) {
+			if (path.contains(marker)) {
+				return false;
+			}
+		}
+
+		for (String prefix : TERRAIN_PREFIXES) {
+			if (path.equals(prefix) || path.startsWith(prefix + "_")) {
 				return true;
 			}
 		}

@@ -14,7 +14,7 @@ import sys
 import zlib
 from collections import Counter
 
-REGION_DIR = os.environ.get('SR_REGION_DIR', 'world/region')
+REGION_DIR = 'extracted/botwproject/region'
 NAME_RE = re.compile(rb'minecraft:[a-z_0-9]+')
 SECTOR = 4096
 
