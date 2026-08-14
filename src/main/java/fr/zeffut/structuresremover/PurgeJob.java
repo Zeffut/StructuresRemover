@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -46,23 +47,27 @@ public final class PurgeJob {
 
 	private final ServerWorld world;
 	private final boolean dryRun;
-	private final Map<Long, List<String[]>> byChunk;
-	private final Iterator<Map.Entry<Long, List<String[]>>> remaining;
+	private final Map<Long, List<int[]>> byChunk;
+	private final List<String> names;
+	private final Iterator<Map.Entry<Long, List<int[]>>> remaining;
 	private final int chunkCount;
 	private final long listed;
 
 	private final BlockPos.Mutable cursor = new BlockPos.Mutable();
 	private final Map<String, Integer> renames = new TreeMap<>();
 
+	private boolean stopServerWhenDone;
 	private long cleared;
 	private long refusedTerrain;
 	private long renamed;
 	private int chunksDone;
 
-	private PurgeJob(ServerWorld world, boolean dryRun, Map<Long, List<String[]>> byChunk, long listed) {
+	private PurgeJob(ServerWorld world, boolean dryRun, Map<Long, List<int[]>> byChunk,
+			List<String> names, long listed) {
 		this.world = world;
 		this.dryRun = dryRun;
 		this.byChunk = byChunk;
+		this.names = names;
 		this.remaining = byChunk.entrySet().iterator();
 		this.chunkCount = byChunk.size();
 		this.listed = listed;
@@ -70,9 +75,17 @@ public final class PurgeJob {
 
 	/**
 	 * Reads a deletion list and prepares the work, grouped so each chunk is visited once.
+	 *
+	 * <p>Each position becomes four ints rather than the four strings it was written as. A
+	 * whole-map list is over a million and a half of them, and keeping those as split strings cost
+	 * about half a gigabyte of heap — enough, on top of the chunks being held, to run a four
+	 * gigabyte server out of memory before it finished. The block names repeat endlessly across the
+	 * list, so they are kept once in a table and referred to by number.
 	 */
 	public static PurgeJob read(ServerWorld world, Path file, boolean dryRun) throws Exception {
-		Map<Long, List<String[]>> byChunk = new TreeMap<>();
+		Map<Long, List<int[]>> byChunk = new TreeMap<>();
+		Map<String, Integer> ids = new HashMap<>();
+		List<String> names = new ArrayList<>();
 		long listed = 0;
 
 		try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
@@ -86,12 +99,23 @@ public final class PurgeJob {
 				}
 
 				listed++;
-				long key = ChunkPos.toLong(Integer.parseInt(parts[0]) >> 4, Integer.parseInt(parts[2]) >> 4);
-				byChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(parts);
+				int x = Integer.parseInt(parts[0]);
+				int y = Integer.parseInt(parts[1]);
+				int z = Integer.parseInt(parts[2]);
+				Integer id = ids.get(parts[3]);
+
+				if (id == null) {
+					id = names.size();
+					ids.put(parts[3], id);
+					names.add(parts[3].toLowerCase(Locale.ROOT));
+				}
+
+				long key = ChunkPos.toLong(x >> 4, z >> 4);
+				byChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(new int[]{x, y, z, id});
 			}
 		}
 
-		return new PurgeJob(world, dryRun, byChunk, listed);
+		return new PurgeJob(world, dryRun, byChunk, names, listed);
 	}
 
 	public long listed() {
@@ -168,21 +192,27 @@ public final class PurgeJob {
 			running = null;
 			job.report();
 			server.saveAll(true, false, false);
+
+			if (job.stopServerWhenDone) {
+				server.stop(false);
+			}
 		}
 	}
 
-	/** Runs the whole list without giving the server a chance to tick. */
-	public void runToEnd(MinecraftServer server) {
-		while (!step(server)) {
-			// Nothing else to do: the startup path has no ticks to spread the work over.
-		}
+	/**
+	 * Asks for the server to shut down once this job is finished.
+	 *
+	 * <p>For the startup path, where the only reason the server is running is to apply the list.
+	 */
+	public void stopServerWhenDone() {
+		this.stopServerWhenDone = true;
 	}
 
-	private void applyChunk(List<String[]> entries) {
+	private void applyChunk(List<int[]> entries) {
 		BlockState air = Blocks.AIR.getDefaultState();
 
-		for (String[] parts : entries) {
-			cursor.set(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
+		for (int[] entry : entries) {
+			cursor.set(entry[0], entry[1], entry[2]);
 			BlockState present = world.getBlockState(cursor);
 
 			if (BulkPurge.isTerrain(present.getBlock())) {
@@ -190,7 +220,7 @@ public final class PurgeJob {
 				continue;
 			}
 
-			String expected = parts[3].toLowerCase(Locale.ROOT);
+			String expected = names.get(entry[3]);
 			String actual = Registries.BLOCK.getId(present.getBlock()).toString();
 
 			if (!actual.equals(expected)) {

@@ -90,10 +90,11 @@ final class BulkPurge {
 			try {
 				run(server, Path.of(file));
 			} catch (Exception exception) {
+				// Only on failure. On success the job is now queued on the tick loop and stops the
+				// server itself when it is done; stopping here would end the run before it began.
 				StructuresRemover.LOGGER.error("[purge] blew up", exception);
+				server.stop(false);
 			}
-
-			server.stop(false);
 		});
 	}
 
@@ -141,8 +142,11 @@ final class BulkPurge {
 		StructuresRemover.LOGGER.info("[purge] {} blocks listed across {} chunks{}",
 				job.listed(), job.chunkCount(), dryRun ? " (dry run)" : "");
 
-		// Nothing is ticking at startup, so there is nothing to spread the work over.
-		job.runToEnd(server);
-		job.report();
+		// Handed to the tick loop rather than run here and now. Running it in one go was the
+		// original design and it exhausted the heap on a whole-map list: the server only unloads
+		// chunks between ticks, so thirteen thousand of them piled up unreleased. Going through
+		// ticks lets them go as it moves on, and the server stops itself when the job reports done.
+		job.stopServerWhenDone();
+		PurgeJob.start(job);
 	}
 }
