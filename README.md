@@ -89,6 +89,34 @@ différentes n'en alignent qu'une fraction. La suppression efface alors, à l'in
 copie, tout bloc fait de ces matériaux : c'est ce qui emporte les parties qui varient (entrée,
 décoration) sans toucher au sol. Réglable avec `/sr set clearmaterials false`.
 
+### Recette pour une map pleine de copies imparfaites
+
+Mesuré sur les 137 sanctuaires de la map BOTW de Grazzy :
+
+1. `/sr set rotations true` — les copies sont posées dans les 4 orientations.
+2. Sélectionner une copie **largement** (une boîte de ~30×17×30 autour), puis `/sr add sanctuaire`.
+3. Recommencer sur **au moins 3 autres copies**, dans des terrains différents (une en plaine, une
+   à flanc de colline, une au bord de l'eau). En dessous de 3 exemplaires le mod ne peut pas
+   distinguer la structure du sol, et il te préviendra avant de supprimer.
+4. `/sr set tolerance 92` — les copies ne sont jamais identiques au bloc près.
+5. `/sr scan world` d'abord. Vérifier le nombre trouvé.
+6. `/sr remove world`.
+
+Si le scan laisse des copies de côté, ce sont des **variantes** : sélectionne-en trois et
+`/sr add sanctuaire2`. Une passe cherche tous les motifs enregistrés à la fois.
+
+Résultat mesuré sur 12 321 chunks avec un seul motif appris sur 8 copies, tolérance 92 :
+
+| | |
+| --- | --- |
+| Copies trouvées | 22 / 23 |
+| Faux positifs | 0 |
+| Blocs de structure supprimés | **99,95 %** |
+| Blocs de terrain touchés | 130 sur 109 487 (**0,12 %**) |
+
+La copie non trouvée était enterrée dans une montagne et bâtie dans d'autres matériaux — une
+variante, à traiter comme telle.
+
 ### Persistance
 
 La sélection courante, les structures mises en file et les réglages **survivent au redémarrage du

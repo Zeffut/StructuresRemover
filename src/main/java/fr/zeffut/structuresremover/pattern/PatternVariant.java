@@ -44,9 +44,13 @@ public record PatternVariant(
 		return !this.states[i].isAir() && this.agreement[i] >= footprintThreshold(this.requiredAgreement);
 	}
 
-	/** Removal reaches a little wider than matching, to catch the parts that vary. */
+	/** Removal reaches a little wider than matching, but never on the word of a single example. */
 	private static int footprintThreshold(int requiredAgreement) {
-		return Math.max(1, (requiredAgreement * 2) / 3);
+		if (requiredAgreement <= 1) {
+			return 1;
+		}
+
+		return Math.max(2, (requiredAgreement * 2) / 3);
 	}
 
 	/** Number of cells removal would clear. */

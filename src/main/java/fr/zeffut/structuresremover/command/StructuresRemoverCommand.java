@@ -63,6 +63,9 @@ public final class StructuresRemoverCommand {
 
 	private static final int MAX_RADIUS_CHUNKS = 4096;
 
+	/** Footprint above which a single-example structure is worth warning about before removal. */
+	private static final int BULK_FOOTPRINT = 2000;
+
 	/** Name used when scanning straight from the selection, without saving it first. */
 	private static final String SELECTION_NAME = "selection";
 
@@ -420,6 +423,13 @@ public final class StructuresRemoverCommand {
 		if (existing != null) {
 			// Same name again: this is another example of a structure that repeats imperfectly.
 			StructurePattern merged = existing.pattern().merge(pattern, options.rotations, options.mirrors);
+
+			if (merged == existing.pattern()) {
+				return error(context, "That copy is too different from the others to fold into '"
+						+ chosen + "'. Save it under another name — a scan looks for every saved "
+						+ "structure in the same pass, so nothing is lost by having two.");
+			}
+
 			patterns.put(chosen, new SavedPattern(chosen, existing.world(), merged));
 			SelectionManager.markDirty(player.getUuid());
 
@@ -568,6 +578,18 @@ public final class StructuresRemoverCommand {
 			supplier = wholeWorldSupplier;
 		} else {
 			supplier = new ChunkSupplier.Square(regionIndex, player.getChunkPos(), radius);
+		}
+
+		for (Target candidate : targets) {
+			if (candidate.materials().isEmpty() && candidate.variants().get(0).footprintCount() > BULK_FOOTPRINT) {
+				// One example cannot separate the structure from the ground it stands in, so removal
+				// clears the whole selection — which on a hillside means the hillside.
+				context.getSource().sendFeedback(() -> Chat.prefixed(Text.literal("'" + candidate.name()
+						+ "' was learnt from a single copy, so removing it will clear its whole "
+						+ candidate.variants().get(0).footprintCount() + "-block selection, ground included. "
+						+ "Add two more copies with /sr add " + candidate.name()
+						+ " so it can tell the structure from the ground.").formatted(Formatting.YELLOW)), false);
+			}
 		}
 
 		int orientations = targets.stream().mapToInt(target -> target.variants().size()).sum();

@@ -36,6 +36,23 @@ public final class StructurePattern {
 	/** Cap on the offsets one pivot block may suggest, so alignment stays quick. */
 	private static final int MAX_PIVOT_PAIRS = 4_000;
 
+	/**
+	 * How many cells per example a block may occupy and still count as trim rather than ground.
+	 * A shrine's glass runs to a couple of cells per copy; the hillside it stands on runs to
+	 * hundreds.
+	 */
+	private static final int MAX_TRIM_CELLS_PER_EXAMPLE = 8;
+
+	/**
+	 * Fewest cells a learnt pattern may rely on.
+	 *
+	 * <p>Below roughly this many, a pattern stops describing a particular building and starts
+	 * describing a handful of blocks that turn up all over a map. Measured on a real map, a pattern
+	 * worn down to seven cells fired about once every 1500 chunks away from any real copy — which
+	 * over a whole world is hundreds of wrong deletions.
+	 */
+	public static final int MIN_REQUIRED_CELLS = 16;
+
 	/** Fixed-point scale for the rarity weighting used when lining two examples up. */
 	private static final int WEIGHT_SCALE = 1_000_000;
 
@@ -70,12 +87,19 @@ public final class StructurePattern {
 	private final int sizeZ;
 	private final BlockState[] states;
 	private final int[] agreement;
+	private final Map<Block, Integer> typeExamples;
 	private final int solidCount;
 	private final int exampleCount;
 	private final BlockPos origin;
 
 	private StructurePattern(int sizeX, int sizeY, int sizeZ, BlockState[] states, int[] agreement,
 			int solidCount, int exampleCount, BlockPos origin) {
+		this(sizeX, sizeY, sizeZ, states, agreement, solidCount, exampleCount, origin, countTypes(states));
+	}
+
+	private StructurePattern(int sizeX, int sizeY, int sizeZ, BlockState[] states, int[] agreement,
+			int solidCount, int exampleCount, BlockPos origin, Map<Block, Integer> typeExamples) {
+		this.typeExamples = typeExamples;
 		this.sizeX = sizeX;
 		this.sizeY = sizeY;
 		this.sizeZ = sizeZ;
@@ -221,7 +245,9 @@ public final class StructurePattern {
 	 * itself everywhere, so everything in the box would qualify.
 	 */
 	public Set<Block> structureMaterials() {
-		if (this.exampleCount < 2) {
+		// Two examples cannot tell a material from the ground: every cell either agrees or is
+		// unique to one of them, so the test below would pass everything.
+		if (this.exampleCount < 3) {
 			return Set.of();
 		}
 
@@ -242,11 +268,24 @@ public final class StructurePattern {
 		}
 
 		Set<Block> materials = new HashSet<>();
+		int seenInMost = Math.max(2, (this.exampleCount * 3 + 3) / 4);
 
 		for (Map.Entry<Block, int[]> entry : tally.entrySet()) {
 			int[] counts = entry.getValue();
 
+			// Signal one: most of this block's cells are cells the examples agreed on. That is the
+			// body of the structure — walls and floor, always in the same place.
 			if (counts[1] * 2 >= counts[0]) {
+				materials.add(entry.getKey());
+				continue;
+			}
+
+			// Signal two: the block turns up in nearly every copy yet never in quantity, and never
+			// twice in the same spot. That is the trim — glass, lamps, banners — which moves around
+			// with the entrance. Ground fails this because there is always a great deal of it.
+			int examples = this.typeExamples.getOrDefault(entry.getKey(), 0);
+
+			if (examples >= seenInMost && counts[0] <= MAX_TRIM_CELLS_PER_EXAMPLE * this.exampleCount) {
 				materials.add(entry.getKey());
 			}
 		}
@@ -254,9 +293,43 @@ public final class StructurePattern {
 		return materials;
 	}
 
+	/** Per block type: how many cells hold it, and how many of those the examples agreed on. */
+	public Map<Block, int[]> materialEvidence() {
+		int threshold = footprintAgreement(this.exampleCount);
+		Map<Block, int[]> tally = new HashMap<>();
+
+		for (int i = 0; i < this.states.length; i++) {
+			if (this.states[i].isAir()) {
+				continue;
+			}
+
+			int[] counts = tally.computeIfAbsent(this.states[i].getBlock(), block -> new int[2]);
+			counts[0]++;
+
+			if (this.agreement[i] >= threshold) {
+				counts[1]++;
+			}
+		}
+
+		return tally;
+	}
+
 	/** Per-cell agreement counts, for the storage layer. */
 	public int[] agreementCounts() {
 		return this.agreement.clone();
+	}
+
+	/** Every block type a single example holds was, trivially, seen in one example. */
+	private static Map<Block, Integer> countTypes(BlockState[] states) {
+		Map<Block, Integer> seen = new HashMap<>();
+
+		for (BlockState state : states) {
+			if (!state.isAir()) {
+				seen.put(state.getBlock(), 1);
+			}
+		}
+
+		return seen;
 	}
 
 	/** A pattern taken from a single example demands every one of its cells. */
@@ -290,9 +363,19 @@ public final class StructurePattern {
 		return !this.states[i].isAir() && this.agreement[i] >= footprintAgreement(this.exampleCount);
 	}
 
-	/** Removal reaches a little wider than matching, to catch the parts that vary between copies. */
+	/**
+	 * Removal reaches a little wider than matching, to catch the parts that vary between copies.
+	 *
+	 * <p>From two examples on, a cell needs at least two of them behind it. Accepting a cell that
+	 * only one example had would delete that example's hillside at every copy: measured, it turned
+	 * 0.1% of touched ground into 12.6%.
+	 */
 	private static int footprintAgreement(int exampleCount) {
-		return Math.max(1, (requiredAgreement(exampleCount) * 2) / 3);
+		if (exampleCount <= 1) {
+			return 1;
+		}
+
+		return Math.max(2, (requiredAgreement(exampleCount) * 2) / 3);
 	}
 
 	/** How many examples were merged into this pattern. */
@@ -454,8 +537,23 @@ public final class StructurePattern {
 			}
 		}
 
-		return new StructurePattern(sizeX, sizeY, sizeZ, states, agreement, solid,
-				this.exampleCount + other.exampleCount, this.origin.add(minX, minY, minZ));
+		Map<Block, Integer> mergedTypes = new HashMap<>(this.typeExamples);
+
+		for (Map.Entry<Block, Integer> entry : other.typeExamples.entrySet()) {
+			mergedTypes.merge(entry.getKey(), entry.getValue(), Integer::sum);
+		}
+
+		StructurePattern merged = new StructurePattern(sizeX, sizeY, sizeZ, states, agreement, solid,
+				this.exampleCount + other.exampleCount, this.origin.add(minX, minY, minZ), mergedTypes);
+
+		// A copy that is too different does not belong in this pattern: folding it in would eat the
+		// core down to something that matches half the map. It is a second kind of structure, and
+		// wants a name of its own.
+		if (merged.getRequiredCount() < MIN_REQUIRED_CELLS && previousRequired >= MIN_REQUIRED_CELLS) {
+			return this;
+		}
+
+		return merged;
 	}
 
 	/**
