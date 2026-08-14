@@ -8,8 +8,11 @@ import net.minecraft.util.BlockRotation;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +28,15 @@ import java.util.Set;
 public final class StructurePattern {
 	/** Refuse to build a pattern bigger than this, to keep memory and scan cost sane. */
 	public static final int MAX_CELLS = 2_000_000;
+
+	/** How many different rare blocks are used to guess where an example lines up. */
+	private static final int RARE_PIVOTS = 4;
+
+	/** Cap on the offsets one pivot block may suggest, so alignment stays quick. */
+	private static final int MAX_PIVOT_PAIRS = 4_000;
+
+	/** Fixed-point scale for the rarity weighting used when lining two examples up. */
+	private static final int WEIGHT_SCALE = 1_000_000;
 
 	/**
 	 * Blocks that make terrible anchors: they show up everywhere in a world, so using one would
@@ -44,15 +56,20 @@ public final class StructurePattern {
 	private final int sizeY;
 	private final int sizeZ;
 	private final BlockState[] states;
+	private final int[] agreement;
 	private final int solidCount;
+	private final int exampleCount;
 	private final BlockPos origin;
 
-	private StructurePattern(int sizeX, int sizeY, int sizeZ, BlockState[] states, int solidCount, BlockPos origin) {
+	private StructurePattern(int sizeX, int sizeY, int sizeZ, BlockState[] states, int[] agreement,
+			int solidCount, int exampleCount, BlockPos origin) {
 		this.sizeX = sizeX;
 		this.sizeY = sizeY;
 		this.sizeZ = sizeZ;
 		this.states = states;
+		this.agreement = agreement;
 		this.solidCount = solidCount;
+		this.exampleCount = exampleCount;
 		this.origin = origin;
 	}
 
@@ -142,7 +159,7 @@ public final class StructurePattern {
 		int trimmedZ = maxZ - minZ + 1;
 
 		if (!trim || (trimmedX == sizeX && trimmedY == sizeY && trimmedZ == sizeZ)) {
-			return new StructurePattern(sizeX, sizeY, sizeZ, states.clone(), solidCount, origin);
+			return new StructurePattern(sizeX, sizeY, sizeZ, states.clone(), allRequired(states), solidCount, 1, origin);
 		}
 
 		BlockState[] trimmed = new BlockState[trimmedX * trimmedY * trimmedZ];
@@ -156,12 +173,92 @@ public final class StructurePattern {
 			}
 		}
 
-		return new StructurePattern(trimmedX, trimmedY, trimmedZ, trimmed, solidCount,
+		return new StructurePattern(trimmedX, trimmedY, trimmedZ, trimmed, allRequired(trimmed), solidCount, 1,
 				origin.add(minX, minY, minZ));
+	}
+
+	/** Rebuilds a pattern, including its required mask, as saved by the storage layer. */
+	public static StructurePattern of(int sizeX, int sizeY, int sizeZ, BlockState[] states, int[] agreement,
+			int exampleCount, BlockPos origin) throws PatternException {
+		int solid = 0;
+
+		for (BlockState state : states) {
+			if (!state.isAir()) {
+				solid++;
+			}
+		}
+
+		if (solid == 0) {
+			throw new PatternException("Structure contains only air.");
+		}
+
+		return new StructurePattern(sizeX, sizeY, sizeZ, states.clone(), agreement.clone(), solid,
+				Math.max(1, exampleCount), origin);
+	}
+
+	/** Per-cell agreement counts, for the storage layer. */
+	public int[] agreementCounts() {
+		return this.agreement.clone();
+	}
+
+	/** A pattern taken from a single example demands every one of its cells. */
+	private static int[] allRequired(BlockState[] states) {
+		int[] agreement = new int[states.length];
+		Arrays.fill(agreement, 1);
+		return agreement;
 	}
 
 	public BlockState stateAt(int x, int y, int z) {
 		return this.states[index(x, y, z, this.sizeX, this.sizeZ)];
+	}
+
+	/**
+	 * Whether a cell has to match for a copy to count. Cells the examples disagreed on are not
+	 * required: they are still cleared on removal, but they never reject a candidate.
+	 */
+	public boolean isRequired(int x, int y, int z) {
+		return this.agreement[index(x, y, z, this.sizeX, this.sizeZ)] >= this.exampleCount;
+	}
+
+	/**
+	 * Whether a cell is part of what gets deleted. A cell only has to show up in most of the
+	 * examples: that keeps the parts of the structure that vary, while the ground it was cut into —
+	 * different under every copy — falls away.
+	 */
+	public boolean isInFootprint(int x, int y, int z) {
+		int i = index(x, y, z, this.sizeX, this.sizeZ);
+		return !this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount;
+	}
+
+	/** How many examples were merged into this pattern. */
+	public int getExampleCount() {
+		return this.exampleCount;
+	}
+
+	/** Cells that must match; the rest of the footprint is only used when removing. */
+	public int getRequiredCount() {
+		int count = 0;
+
+		for (int i = 0; i < this.agreement.length; i++) {
+			if (this.agreement[i] >= this.exampleCount && !this.states[i].isAir()) {
+				count++;
+			}
+		}
+
+		return count;
+	}
+
+	/** How many cells removal would clear. */
+	public int getFootprintCount() {
+		int count = 0;
+
+		for (int i = 0; i < this.agreement.length; i++) {
+			if (!this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount) {
+				count++;
+			}
+		}
+
+		return count;
 	}
 
 	private static int index(int x, int y, int z, int sizeX, int sizeZ) {
@@ -191,6 +288,259 @@ public final class StructurePattern {
 	/** Corner the pattern was captured from — used to skip the original copy during removal. */
 	public BlockPos getOrigin() {
 		return this.origin;
+	}
+
+
+	/**
+	 * Folds another example of the same structure into this one.
+	 *
+	 * <p>Real maps rarely repeat a build byte for byte: it gets cut into different ground, decorated
+	 * differently, or turned. Merging keeps the cells every example agrees on as the thing to match,
+	 * and keeps the union of all their blocks as the thing to delete. Two or three examples are
+	 * usually enough to separate the structure from the noise around it.
+	 *
+	 * <p>The other example is aligned automatically — the caller only has to select roughly the same
+	 * structure, not the same corner.
+	 */
+	public StructurePattern merge(StructurePattern other, boolean rotations, boolean mirrors) {
+		Alignment best = null;
+
+		for (PatternVariant candidate : other.buildVariants(rotations, mirrors)) {
+			Alignment alignment = this.bestAlignment(candidate);
+
+			if (alignment != null && (best == null || alignment.score > best.score)) {
+				best = alignment;
+			}
+		}
+
+		int previousRequired = this.getRequiredCount();
+
+		// An example that lines up with nothing distinctive would wipe out the agreement built so
+		// far and leave a pattern vague enough to match anything, so it is refused instead.
+		if (best == null || best.score <= 0) {
+			return this;
+		}
+
+		int minX = Math.min(0, best.offsetX);
+		int minY = Math.min(0, best.offsetY);
+		int minZ = Math.min(0, best.offsetZ);
+		int maxX = Math.max(this.sizeX, best.offsetX + best.variant.sizeX());
+		int maxY = Math.max(this.sizeY, best.offsetY + best.variant.sizeY());
+		int maxZ = Math.max(this.sizeZ, best.offsetZ + best.variant.sizeZ());
+
+		int sizeX = maxX - minX;
+		int sizeY = maxY - minY;
+		int sizeZ = maxZ - minZ;
+
+		BlockState air = Blocks.AIR.getDefaultState();
+		BlockState[] states = new BlockState[sizeX * sizeY * sizeZ];
+		int[] agreement = new int[states.length];
+		Arrays.fill(states, air);
+
+		for (int y = 0; y < sizeY; y++) {
+			for (int z = 0; z < sizeZ; z++) {
+				for (int x = 0; x < sizeX; x++) {
+					int mineX = x + minX;
+					int mineY = y + minY;
+					int mineZ = z + minZ;
+					boolean insideMine = mineX >= 0 && mineY >= 0 && mineZ >= 0
+							&& mineX < this.sizeX && mineY < this.sizeY && mineZ < this.sizeZ;
+
+					int theirX = mineX - best.offsetX;
+					int theirY = mineY - best.offsetY;
+					int theirZ = mineZ - best.offsetZ;
+					boolean insideTheirs = theirX >= 0 && theirY >= 0 && theirZ >= 0
+							&& theirX < best.variant.sizeX() && theirY < best.variant.sizeY()
+							&& theirZ < best.variant.sizeZ();
+
+					BlockState mine = insideMine ? this.stateAt(mineX, mineY, mineZ) : air;
+					int mineAgreement = insideMine
+							? this.agreement[index(mineX, mineY, mineZ, this.sizeX, this.sizeZ)] : 0;
+					BlockState theirs = insideTheirs ? best.variant.stateAt(theirX, theirY, theirZ) : air;
+					int theirAgreement = insideTheirs
+							? best.variant.agreementAt(theirX, theirY, theirZ) : 0;
+
+					int target = index(x, y, z, sizeX, sizeZ);
+
+					if (!mine.isAir() && mine == theirs) {
+						// Both examples put the same block here: that is what makes a cell reliable.
+						states[target] = mine;
+						agreement[target] = mineAgreement + theirAgreement;
+					} else if (!mine.isAir()) {
+						states[target] = mine;
+						agreement[target] = mineAgreement;
+					} else {
+						states[target] = theirs;
+						agreement[target] = theirAgreement;
+					}
+				}
+			}
+		}
+
+		int solid = 0;
+
+		for (BlockState state : states) {
+			if (!state.isAir()) {
+				solid++;
+			}
+		}
+
+		return new StructurePattern(sizeX, sizeY, sizeZ, states, agreement, solid,
+				this.exampleCount + other.exampleCount, this.origin.add(minX, minY, minZ));
+	}
+
+	/**
+	 * Finds where an oriented example sits relative to this pattern.
+	 *
+	 * <p>Translations are not searched blindly: the rarest block the two have in common pins them
+	 * down, so only the handful of offsets that line up one of those blocks is ever scored.
+	 */
+	private Alignment bestAlignment(PatternVariant candidate) {
+		Alignment best = null;
+		LongOpenHashSet tried = new LongOpenHashSet();
+
+		// One rare block can be a coincidence, so several of the rarest are used as pivots and the
+		// offsets they suggest are all scored.
+		for (BlockState key : this.rarestSharedStates(candidate, RARE_PIVOTS)) {
+			List<int[]> mine = this.cellsOf(key);
+			List<int[]> theirs = new ArrayList<>();
+
+			for (int y = 0; y < candidate.sizeY(); y++) {
+				for (int z = 0; z < candidate.sizeZ(); z++) {
+					for (int x = 0; x < candidate.sizeX(); x++) {
+						if (candidate.stateAt(x, y, z) == key) {
+							theirs.add(new int[] {x, y, z});
+						}
+					}
+				}
+			}
+
+			for (int[] a : mine) {
+				for (int[] b : theirs) {
+					int offsetX = a[0] - b[0];
+					int offsetY = a[1] - b[1];
+					int offsetZ = a[2] - b[2];
+
+					if (!tried.add(BlockPos.asLong(offsetX, offsetY, offsetZ))) {
+						continue;
+					}
+
+					int score = this.score(candidate, offsetX, offsetY, offsetZ);
+
+					if (best == null || score > best.score) {
+						best = new Alignment(candidate, offsetX, offsetY, offsetZ, score);
+					}
+				}
+			}
+		}
+
+		return best;
+	}
+
+	/**
+	 * How well an example fits at a given offset, counted on the cells the pattern already trusts.
+	 * Scoring on the whole footprint would let a big pile of matching terrain outvote the structure.
+	 */
+	private int score(PatternVariant candidate, int offsetX, int offsetY, int offsetZ) {
+		Map<BlockState, Integer> counts = this.countStates();
+		long agreed = 0;
+
+		for (int y = 0; y < candidate.sizeY(); y++) {
+			for (int z = 0; z < candidate.sizeZ(); z++) {
+				for (int x = 0; x < candidate.sizeX(); x++) {
+					BlockState theirs = candidate.stateAt(x, y, z);
+
+					if (theirs.isAir()) {
+						continue;
+					}
+
+					int mineX = x + offsetX;
+					int mineY = y + offsetY;
+					int mineZ = z + offsetZ;
+
+					if (mineX < 0 || mineY < 0 || mineZ < 0
+							|| mineX >= this.sizeX || mineY >= this.sizeY || mineZ >= this.sizeZ) {
+						continue;
+					}
+
+					if (this.stateAt(mineX, mineY, mineZ) == theirs) {
+						// Rare blocks carry the signal. Without this weighting a beach of matching
+						// sand outvotes the structure and the example lands in the wrong place.
+						agreed += WEIGHT_SCALE / counts.getOrDefault(theirs, 1);
+					}
+				}
+			}
+		}
+
+		return (int) Math.min(Integer.MAX_VALUE, agreed);
+	}
+
+	/** The least frequent block states the two patterns share, rarest first. */
+	private List<BlockState> rarestSharedStates(PatternVariant candidate, int limit) {
+		Map<BlockState, Integer> theirCounts = new HashMap<>();
+
+		for (BlockState state : candidate.states()) {
+			if (!state.isAir()) {
+				theirCounts.merge(state, 1, Integer::sum);
+			}
+		}
+
+		List<Map.Entry<BlockState, Long>> shared = new ArrayList<>();
+
+		for (Map.Entry<BlockState, Integer> entry : this.countStates().entrySet()) {
+			Integer theirs = theirCounts.get(entry.getKey());
+
+			if (theirs != null) {
+				// The product of the two counts is what the offset search will cost.
+				shared.add(Map.entry(entry.getKey(), (long) entry.getValue() * theirs));
+			}
+		}
+
+		shared.sort(Map.Entry.comparingByValue());
+		List<BlockState> out = new ArrayList<>();
+
+		for (Map.Entry<BlockState, Long> entry : shared) {
+			if (out.size() >= limit || entry.getValue() > MAX_PIVOT_PAIRS) {
+				break;
+			}
+
+			out.add(entry.getKey());
+		}
+
+		return out;
+	}
+
+	private Map<BlockState, Integer> countStates() {
+		Map<BlockState, Integer> counts = new HashMap<>();
+
+		for (BlockState state : this.states) {
+			if (!state.isAir()) {
+				counts.merge(state, 1, Integer::sum);
+			}
+		}
+
+		return counts;
+	}
+
+	private List<int[]> cellsOf(BlockState state) {
+		List<int[]> cells = new ArrayList<>();
+
+		for (int y = 0; y < this.sizeY; y++) {
+			for (int z = 0; z < this.sizeZ; z++) {
+				for (int x = 0; x < this.sizeX; x++) {
+					if (this.stateAt(x, y, z) == state) {
+						cells.add(new int[] {x, y, z});
+					}
+				}
+			}
+		}
+
+		return cells;
+	}
+
+	private record Alignment(PatternVariant variant, int offsetX, int offsetY, int offsetZ, int score) {
+		Alignment {
+		}
 	}
 
 	/**
@@ -230,6 +580,7 @@ public final class StructurePattern {
 		int newSizeX = swapAxes ? this.sizeZ : this.sizeX;
 		int newSizeZ = swapAxes ? this.sizeX : this.sizeZ;
 		BlockState[] transformed = new BlockState[this.states.length];
+		int[] transformedAgreement = new int[this.states.length];
 
 		for (int y = 0; y < this.sizeY; y++) {
 			for (int z = 0; z < this.sizeZ; z++) {
@@ -262,12 +613,14 @@ public final class StructurePattern {
 						}
 					}
 
-					transformed[index(nx, y, nz, newSizeX, newSizeZ)] = state.mirror(mirror).rotate(rotation);
+					int target = index(nx, y, nz, newSizeX, newSizeZ);
+					transformed[target] = state.mirror(mirror).rotate(rotation);
+					transformedAgreement[target] = this.agreement[index(x, y, z, this.sizeX, this.sizeZ)];
 				}
 			}
 		}
 
-		return this.pickAnchor(transformed, newSizeX, this.sizeY, newSizeZ, rotation, mirror);
+		return this.pickAnchor(transformed, transformedAgreement, newSizeX, this.sizeY, newSizeZ, rotation, mirror);
 	}
 
 	/**
@@ -275,13 +628,14 @@ public final class StructurePattern {
 	 * pattern <em>and</em> unlikely to occur in ordinary terrain, since every occurrence of it in
 	 * the world costs one full pattern comparison.
 	 */
-	private PatternVariant pickAnchor(BlockState[] states, int sizeX, int sizeY, int sizeZ,
+	private PatternVariant pickAnchor(BlockState[] states, int[] agreement, int sizeX, int sizeY, int sizeZ,
 			BlockRotation rotation, BlockMirror mirror) {
 		Map<BlockState, Integer> counts = new HashMap<>();
 
-		for (BlockState state : states) {
-			if (!state.isAir()) {
-				counts.merge(state, 1, Integer::sum);
+		// Only a required cell can anchor the scan: an optional one may simply not be there.
+		for (int i = 0; i < states.length; i++) {
+			if (agreement[i] >= this.exampleCount && !states[i].isAir()) {
+				counts.merge(states[i], 1, Integer::sum);
 			}
 		}
 
@@ -309,7 +663,9 @@ public final class StructurePattern {
 		for (int y = 0; y < sizeY; y++) {
 			for (int z = 0; z < sizeZ; z++) {
 				for (int x = 0; x < sizeX; x++) {
-					if (states[index(x, y, z, sizeX, sizeZ)] == best) {
+					int i = index(x, y, z, sizeX, sizeZ);
+
+					if (agreement[i] >= this.exampleCount && states[i] == best) {
 						anchorX = x;
 						anchorY = y;
 						anchorZ = z;
@@ -320,15 +676,20 @@ public final class StructurePattern {
 		}
 
 		int solid = 0;
+		int requiredSolid = 0;
 
-		for (BlockState state : states) {
-			if (!state.isAir()) {
+		for (int i = 0; i < states.length; i++) {
+			if (!states[i].isAir()) {
 				solid++;
+
+				if (agreement[i] >= this.exampleCount) {
+					requiredSolid++;
+				}
 			}
 		}
 
-		return new PatternVariant(sizeX, sizeY, sizeZ, states, rotation, mirror,
-				anchorX, anchorY, anchorZ, best, solid);
+		return new PatternVariant(sizeX, sizeY, sizeZ, states, agreement, this.exampleCount, rotation, mirror,
+				anchorX, anchorY, anchorZ, best, solid, requiredSolid);
 	}
 
 	/** Thrown when a selection cannot be turned into a usable pattern. */

@@ -203,9 +203,17 @@ public final class PlayerDataStorage {
 			states[i] = palette[index];
 		}
 
+		int[] stored = nbt.getIntArray("agreement").orElse(null);
+		int examples = nbt.getInt("examples", 1);
+		int[] agreement = new int[states.length];
+
+		for (int i = 0; i < agreement.length; i++) {
+			agreement[i] = stored == null || i >= stored.length ? examples : stored[i];
+		}
+
 		try {
-			StructurePattern pattern = StructurePattern.of(size[0], size[1], size[2], states,
-					new BlockPos(origin[0], origin[1], origin[2]), false);
+			StructurePattern pattern = StructurePattern.of(size[0], size[1], size[2], states, agreement,
+					nbt.getInt("examples", 1), new BlockPos(origin[0], origin[1], origin[2]));
 			return new SavedPattern(name, world, pattern);
 		} catch (StructurePattern.PatternException exception) {
 			StructuresRemover.LOGGER.warn("Ignoring saved structure '{}': {}", name, exception.getMessage());
@@ -335,6 +343,8 @@ public final class PlayerDataStorage {
 
 		nbt.put("palette", paletteNbt);
 		nbt.putIntArray("cells", cells);
+		nbt.putIntArray("agreement", pattern.agreementCounts());
+		nbt.putInt("examples", pattern.getExampleCount());
 		return nbt;
 	}
 

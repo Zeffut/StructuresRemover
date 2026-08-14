@@ -17,16 +17,47 @@ public record PatternVariant(
 		int sizeY,
 		int sizeZ,
 		BlockState[] states,
+		int[] agreement,
+		int exampleCount,
 		BlockRotation rotation,
 		BlockMirror mirror,
 		int anchorX,
 		int anchorY,
 		int anchorZ,
 		BlockState anchorState,
-		int solidCount
+		int solidCount,
+		int requiredCount
 ) {
 	public BlockState stateAt(int x, int y, int z) {
 		return this.states[(y * this.sizeZ + z) * this.sizeX + x];
+	}
+
+	/** Whether this cell has to match, as opposed to only being cleared on removal. */
+	public boolean isRequired(int x, int y, int z) {
+		return this.agreement[(y * this.sizeZ + z) * this.sizeX + x] >= this.exampleCount;
+	}
+
+	/** Whether removal clears this cell: present in most examples, so not just the ground. */
+	public boolean isInFootprint(int x, int y, int z) {
+		int i = (y * this.sizeZ + z) * this.sizeX + x;
+		return !this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount;
+	}
+
+	/** Number of cells removal would clear. */
+	public int footprintCount() {
+		int count = 0;
+
+		for (int i = 0; i < this.states.length; i++) {
+			if (!this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount) {
+				count++;
+			}
+		}
+
+		return count;
+	}
+
+	public int agreementAt(int x, int y, int z) {
+		return this.agreement[(y * this.sizeZ + z) * this.sizeX + x];
 	}
 
 	public boolean hasSameContent(PatternVariant other) {

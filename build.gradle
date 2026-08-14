@@ -37,6 +37,18 @@ loom {
 			property "structuresremover.selftest", "true"
 			property "structuresremover.persist", System.getProperty("srpersist", "")
 		}
+		trial {
+			inherit server
+			name = "Detection trial"
+			property "structuresremover.trial", System.getProperty("srtrial", "")
+			property "structuresremover.trial.x", System.getProperty("srx", "3521")
+			property "structuresremover.trial.z", System.getProperty("srz", "5922")
+			property "structuresremover.trial.radius", System.getProperty("srradius", "50")
+			property "structuresremover.trial.examples", System.getProperty("srexamples", "4")
+			property "structuresremover.trial.box", System.getProperty("srbox", "14")
+			property "structuresremover.trial.tolerance", System.getProperty("srtol", "100")
+			vmArg "-Xmx6G"
+		}
 	}
 }
 

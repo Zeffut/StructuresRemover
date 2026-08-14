@@ -414,12 +414,26 @@ public final class StructuresRemoverCommand {
 		}
 
 		String chosen = name != null ? name : nextFreeName(patterns);
+		SavedPattern existing = patterns.get(chosen);
+
+		if (existing != null) {
+			// Same name again: this is another example of a structure that repeats imperfectly.
+			StructurePattern merged = existing.pattern().merge(pattern, options.rotations, options.mirrors);
+			patterns.put(chosen, new SavedPattern(chosen, existing.world(), merged));
+			SelectionManager.markDirty(player.getUuid());
+
+			return feedback(context, "'" + chosen + "' now learnt from " + merged.getExampleCount()
+					+ " examples — " + merged.getRequiredCount() + " of " + merged.getSolidCount()
+					+ " blocks are common to all of them and will be matched; the rest is only deleted.");
+		}
+
 		patterns.put(chosen, new SavedPattern(chosen, selection.getWorld(), pattern));
 		SelectionManager.markDirty(player.getUuid());
 
 		return feedback(context, "Saved '" + chosen + "' — " + pattern.getSizeX() + "x" + pattern.getSizeY()
 				+ "x" + pattern.getSizeZ() + ", " + pattern.getSolidCount() + " blocks. "
-				+ patterns.size() + " structure(s) queued.");
+				+ patterns.size() + " structure(s) queued. Repeat /sr add " + chosen
+				+ " on another copy to learn what varies between them.");
 	}
 
 	private static String nextFreeName(LinkedHashMap<String, SavedPattern> patterns) {

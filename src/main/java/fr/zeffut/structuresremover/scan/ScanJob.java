@@ -50,6 +50,9 @@ public final class ScanJob implements Job {
 	private final List<Match> matches = new ArrayList<>();
 	private final LongOpenHashSet claimedOrigins = new LongOpenHashSet();
 
+	/** Accepted matches bucketed by chunk, so overlap can be checked against the neighbours only. */
+	private final Map<Long, List<Match>> acceptedByChunk = new HashMap<>();
+
 	private Phase phase = Phase.SCAN;
 	private boolean cancelled;
 	private int ticks;
@@ -157,7 +160,7 @@ public final class ScanJob implements Job {
 		this.totalBlocksToChange = 0;
 
 		for (Match match : this.matches) {
-			this.totalBlocksToChange += match.variant().solidCount();
+			this.totalBlocksToChange += match.variant().footprintCount();
 		}
 
 		this.phase = Phase.REMOVE;
@@ -258,6 +261,45 @@ public final class ScanJob implements Job {
 		}
 	}
 
+	private boolean overlapsAccepted(int originX, int originY, int originZ, PatternVariant variant) {
+		int chunkX = originX >> 4;
+		int chunkZ = originZ >> 4;
+		int reach = (Math.max(variant.sizeX(), variant.sizeZ()) >> 4) + 1;
+
+		for (int dx = -reach; dx <= reach; dx++) {
+			for (int dz = -reach; dz <= reach; dz++) {
+				List<Match> bucket = this.acceptedByChunk.get(ChunkPos.toLong(chunkX + dx, chunkZ + dz));
+
+				if (bucket == null) {
+					continue;
+				}
+
+				for (Match other : bucket) {
+					if (overlaps(originX, originY, originZ, variant, other)) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	private static boolean overlaps(int originX, int originY, int originZ, PatternVariant variant, Match other) {
+		BlockPos origin = other.origin();
+		PatternVariant theirs = other.variant();
+		return originX < origin.getX() + theirs.sizeX() && origin.getX() < originX + variant.sizeX()
+				&& originY < origin.getY() + theirs.sizeY() && origin.getY() < originY + variant.sizeY()
+				&& originZ < origin.getZ() + theirs.sizeZ() && origin.getZ() < originZ + variant.sizeZ();
+	}
+
+	private void remember(Match match) {
+		this.acceptedByChunk
+				.computeIfAbsent(ChunkPos.toLong(match.origin().getX() >> 4, match.origin().getZ() >> 4),
+						key -> new ArrayList<>())
+				.add(match);
+	}
+
 	private boolean limitReached() {
 		return this.options.maxMatches > 0 && this.matches.size() >= this.options.maxMatches;
 	}
@@ -296,7 +338,7 @@ public final class ScanJob implements Job {
 				int z = (index / variant.sizeX()) % variant.sizeZ();
 				int y = index / (variant.sizeX() * variant.sizeZ());
 
-				if (variant.stateAt(x, y, z).isAir()) {
+				if (!variant.isInFootprint(x, y, z)) {
 					continue;
 				}
 

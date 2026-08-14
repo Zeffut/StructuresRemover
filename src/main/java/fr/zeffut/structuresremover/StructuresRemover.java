@@ -53,6 +53,7 @@ public class StructuresRemover implements ModInitializer {
 		});
 
 		DevSelfTest.register();
+		BotwTrial.register();
 
 		LOGGER.info("StructuresRemover ready — use /sr wand to start selecting.");
 	}

@@ -53,6 +53,31 @@ lancer **un seul** scan qui cherche les deux en même temps. Limite : 16 structu
 
 Si la file est vide, `/sr scan` et `/sr remove` utilisent simplement la sélection courante.
 
+### Structures qui se répètent sans être identiques
+
+Sur une vraie map, une structure posée cent fois n'est presque jamais copiée bloc pour bloc : elle
+est encastrée dans un terrain différent, décorée autrement, tournée. Un seul exemplaire comme
+modèle ne retrouve alors qu'une fraction des copies.
+
+La réponse est d'en donner **plusieurs exemplaires sous le même nom** :
+
+```
+/sr add sanctuaire     (sélection autour d'une première copie)
+/sr add sanctuaire     (autour d'une deuxième)
+/sr add sanctuaire     (autour d'une troisième…)
+```
+
+À chaque ajout, le mod aligne automatiquement le nouvel exemplaire sur les précédents (rotation
+comprise) et compte, case par case, combien d'exemplaires sont d'accord. Il en tire deux choses :
+
+- **ce qui doit correspondre** — les cases sur lesquelles *tous* les exemplaires s'accordent,
+  c'est-à-dire le cœur invariant de la structure ;
+- **ce qui sera supprimé** — les cases présentes dans *la majorité* des exemplaires. Le terrain,
+  différent sous chaque copie, disparaît de ce périmètre tout seul.
+
+Trois à cinq exemplaires suffisent en général. Un exemplaire qui ne s'aligne sur rien est refusé
+plutôt que d'affaiblir le motif, et `/sr list` indique combien de cases restent communes.
+
 ### Persistance
 
 La sélection courante, les structures mises en file et les réglages **survivent au redémarrage du

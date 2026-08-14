@@ -16,6 +16,11 @@ public final class PatternMatcher {
 	 * How many cells a comparison looks at, which is what {@code tolerance} is a percentage of.
 	 */
 	public static int comparedCells(PatternVariant variant, boolean matchAir) {
+		if (variant.requiredCount() < variant.solidCount()) {
+			// A pattern learnt from several examples only ever compares the cells they agreed on.
+			return variant.requiredCount();
+		}
+
 		return matchAir
 				? variant.sizeX() * variant.sizeY() * variant.sizeZ()
 				: variant.solidCount();
@@ -38,6 +43,10 @@ public final class PatternMatcher {
 		for (int y = 0; y < variant.sizeY(); y++) {
 			for (int z = 0; z < variant.sizeZ(); z++) {
 				for (int x = 0; x < variant.sizeX(); x++) {
+					if (!variant.isRequired(x, y, z)) {
+						continue;
+					}
+
 					BlockState expected = variant.stateAt(x, y, z);
 
 					if (expected.isAir() && !matchAir) {
