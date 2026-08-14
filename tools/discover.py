@@ -453,6 +453,23 @@ def scan_region(args):
 STATE = 'structures.pickle'
 
 
+def regions_of(entry):
+    """Every region a clump could be claimed by, given its corner and its extent.
+
+    A clump belongs to whichever region its centre falls in, but all that is recorded is its lowest
+    corner — and for a clump lying across a region border those are different regions. Looking only
+    where the corner is silently loses it, so every region the clump reaches into is searched; its
+    centre is inside its own bounding box, so the right one is always among them.
+    """
+    size, x, y, z, dx, dy, dz, mats = entry
+    # The two horizontal extents are recorded sorted, so which one belongs to x and which to z is no
+    # longer known; the wider is the safe assumption for both.
+    span = max(dx, dz) - 1
+    return {(rx, rz)
+            for rx in range(x >> 9, ((x + span) >> 9) + 1)
+            for rz in range(z >> 9, ((z + span) >> 9) + 1)}
+
+
 def key_of(entry):
     """The summary two clumps must share before they can possibly be copies of each other."""
     size, _, _, _, dx, dy, dz, mats = entry

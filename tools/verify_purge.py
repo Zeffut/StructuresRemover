@@ -24,7 +24,7 @@ except ImportError:
     np = None
 
 ORIGINAL = 'extracted/botwproject/region'
-PURGED = '../StructuresRemover/run/shrinetest/region'
+PURGED = '../StructuresRemover/run/alltest/region'
 
 
 def section_names(section):
@@ -115,8 +115,13 @@ def compare(args):
 
 
 def main():
+    global PURGED
+
     listing = sys.argv[1] if len(sys.argv) > 1 else 'shrines_purge.txt'
     workers = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+
+    if len(sys.argv) > 3:
+        PURGED = sys.argv[3]
 
     listed = {}
 

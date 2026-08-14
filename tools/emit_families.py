@@ -56,7 +56,8 @@ def main():
 
     for family in chosen:
         for entry in family['members']:
-            by_region[(entry[1] >> 9, entry[3] >> 9)].append((entry[1], entry[2], entry[3]))
+            for region in discover.regions_of(entry):
+                by_region[region].append((entry[1], entry[2], entry[3]))
 
     print('spread over %d regions' % len(by_region), flush=True)
 

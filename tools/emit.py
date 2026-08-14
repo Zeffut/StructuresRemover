@@ -57,7 +57,13 @@ def main():
 
     for entries in chosen.values():
         for size, corner, materials in entries:
-            by_region[(corner[0] >> 9, corner[2] >> 9)].append(corner)
+            # Grown by the structure's own size, because a structure lying across a region border is
+            # claimed by the region holding its centre, which is not the one holding its corner.
+            span = int(round(size ** (1 / 3))) + 2
+            entry = (size, corner[0], corner[1], corner[2], span, span, span, ())
+
+            for region in discover.regions_of(entry):
+                by_region[region].append(corner)
 
     instances = sum(len(v) for v in by_region.values())
     print('  %d instances spread over %d regions' % (instances, len(by_region)), flush=True)

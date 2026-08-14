@@ -62,8 +62,9 @@ def main():
 
     by_region = defaultdict(list)
 
-    for size, x, y, z, dx, dy, dz, mats in candidates:
-        by_region[(x >> 9, z >> 9)].append((x, y, z))
+    for entry in candidates:
+        for region in discover.regions_of(entry):
+            by_region[region].append((entry[1], entry[2], entry[3]))
 
     print('reading back %d regions to fingerprint them exactly' % len(by_region), flush=True)
 
