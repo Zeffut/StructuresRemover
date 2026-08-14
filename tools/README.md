@@ -35,6 +35,25 @@ shrine comes along and the house next door does not. A core that would grow past
 progressively tighter margins rather than being dropped, because a shrine dropped for being too big
 is a shrine left standing.
 
+## Finding the families a map repeats, without being told what to look for
+
+Handing the tool a palette only works because somebody has already looked at one of the structures.
+This works the families out from the scan alone:
+
+    python3 families.py                    # what repeats, with evidence
+    python3 emit_families.py repeats.txt   # the blocks of every member
+    python3 combine.py all.txt repeats.txt shrines_purge.txt
+
+The signal is size agreement. Group clumps by what they are mostly made of and two very different
+things appear. A family of repeated structures has members that are all about the same size — 135
+clumps of acacia fence and honey block, every one of them 215 or 216 blocks, is a prop the builder
+placed 135 times. A material that is merely popular has members of every size, from a doorstep to a
+whole castle, and is not a family at all.
+
+On this map that recovers the landmarks unprompted: shrines, Sheikah towers, stables, gerudo tents,
+and several thousand vanilla village houses out in the wilderness — without being given a single
+block name to look for.
+
 ## Checking the result
 
     python3 evaluate.py            # score against the map's own answer key
