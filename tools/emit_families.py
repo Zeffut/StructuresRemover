@@ -17,20 +17,23 @@ import families
 
 def emit_region(args):
     """The blocks of every wanted member in one region, as ``x y z block`` lines."""
-    (rx, rz), corners = args
+    (rx, rz), wanted = args
     blocks = discover.load_blocks(rx, rz)
 
     if blocks is None:
         return 0, []
 
-    wanted = set(corners)
+    # Matched on size as well as position. The corner is the lowest coordinate on each axis, which
+    # is not necessarily one of the structure's own blocks, and two structures standing near each
+    # other can share one — matching on it alone emitted a structure that was never asked for.
+    wanted = set(wanted)
     lines = []
     matched = 0
 
     for blob in discover.owned_clumps(rx, rz, blocks):
         corner = (min(c[0] for c in blob), min(c[1] for c in blob), min(c[2] for c in blob))
 
-        if corner not in wanted:
+        if (corner, len(blob)) not in wanted:
             continue
 
         matched += 1
@@ -57,7 +60,7 @@ def main():
     for family in chosen:
         for entry in family['members']:
             for region in discover.regions_of(entry):
-                by_region[region].append((entry[1], entry[2], entry[3]))
+                by_region[region].append(((entry[1], entry[2], entry[3]), entry[0]))
 
     print('spread over %d regions' % len(by_region), flush=True)
 
