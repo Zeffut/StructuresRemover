@@ -131,7 +131,8 @@ final class BulkPurge {
 
 		long cleared = 0;
 		long refusedTerrain = 0;
-		long refusedMismatch = 0;
+		long renamed = 0;
+		Map<String, Integer> renames = new TreeMap<>();
 		long chunksDone = 0;
 		BlockPos.Mutable cursor = new BlockPos.Mutable();
 
@@ -151,8 +152,13 @@ final class BulkPurge {
 				String actual = Registries.BLOCK.getId(present.getBlock()).toString();
 
 				if (!actual.equals(expected)) {
-					refusedMismatch++;
-					continue;
+					// The list is read from the save files, the world from a server that may have
+					// upgraded it: minecraft:chain became minecraft:iron_chain in 1.21.11, and a
+					// strict name check silently skipped every one of them. The block still has to
+					// pass the landscape test above, which is what actually protects the ground;
+					// the rename is reported rather than hidden.
+					renames.merge(expected + " -> " + actual, 1, Integer::sum);
+					renamed++;
 				}
 
 				if (!dryRun) {
@@ -172,7 +178,10 @@ final class BulkPurge {
 		StructuresRemover.LOGGER.info("[purge] ==========================================");
 		StructuresRemover.LOGGER.info("[purge] cleared {} blocks", cleared);
 		StructuresRemover.LOGGER.info("[purge] refused because the block was landscape: {}", refusedTerrain);
-		StructuresRemover.LOGGER.info("[purge] refused because the block was not what the list said: {}",
-				refusedMismatch);
+		StructuresRemover.LOGGER.info("[purge] cleared under a different name than listed: {}", renamed);
+
+		for (Map.Entry<String, Integer> entry : renames.entrySet()) {
+			StructuresRemover.LOGGER.info("[purge]   {} x{}", entry.getKey(), entry.getValue());
+		}
 	}
 }

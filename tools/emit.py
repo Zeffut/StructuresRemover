@@ -37,7 +37,8 @@ def main():
     wanted = defaultdict(list)
 
     for digest, entries in chosen.items():
-        for size, x, y, z in entries:
+        for entry in entries:
+            size, x, y, z = entry[0], entry[1], entry[2], entry[3]
             wanted[region_of(x, z)].append((digest, size, x, y, z))
 
     print('  spread over %d regions' % len(wanted))
