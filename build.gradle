@@ -37,6 +37,13 @@ loom {
 			property "structuresremover.selftest", "true"
 			property "structuresremover.persist", System.getProperty("srpersist", "")
 		}
+		purge {
+			inherit server
+			name = "Bulk purge"
+			property "structuresremover.purge", System.getProperty("srpurge", "")
+			property "structuresremover.purge.dry", System.getProperty("srdry", "false")
+			vmArg "-Xmx6G"
+		}
 		trial {
 			inherit server
 			name = "Detection trial"
