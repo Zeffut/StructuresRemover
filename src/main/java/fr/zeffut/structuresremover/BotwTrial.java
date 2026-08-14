@@ -82,11 +82,14 @@ final class BotwTrial {
 		options.keepOriginal = false;
 		options.tolerance = Integer.getInteger("structuresremover.trial.tolerance", 100);
 
-		// Learn from the first few known structures, exactly as a player would with /sr add <name>.
+		// Learn from a spread-out handful, exactly as a player would with /sr add <name>. Picking
+		// neighbours would teach the pattern their shared ground instead of the structure.
+		List<BlockPos> chosen = spreadOut(
+				Boolean.getBoolean("structuresremover.trial.globalexamples") ? truth : inArea, examples);
 		StructurePattern pattern = null;
 
-		for (int i = 0; i < Math.min(examples, inArea.size()); i++) {
-			BlockPos pos = inArea.get(i);
+		for (int i = 0; i < chosen.size(); i++) {
+			BlockPos pos = chosen.get(i);
 			BlockBox box = new BlockBox(
 					pos.getX() - reach, pos.getY() - 4, pos.getZ() - reach,
 					pos.getX() + reach, pos.getY() + 12, pos.getZ() + reach);
@@ -107,13 +110,22 @@ final class BotwTrial {
 		Target target = Target.of(new SavedPattern("shrine", world.getRegistryKey(), pattern),
 				options.rotations, options.mirrors);
 		StructuresRemover.LOGGER.info("[trial] required cells make up: {}", describeRequired(pattern));
+		StructuresRemover.LOGGER.info("[trial] materials judged part of the structure: {}",
+				pattern.structureMaterials().stream().map(b -> b.getName().getString()).sorted().toList());
 		StructuresRemover.LOGGER.info("[trial] anchor block: {} ({} orientations)",
 				target.variants().get(0).anchorState().getBlock().getName().getString(), target.variants().size());
 
 		RegionIndex index = new RegionIndex(world);
+
+		if ("probe".equals(System.getProperty("structuresremover.trial.mode", ""))) {
+			probeEachTarget(world, index, target, options, truth);
+			return;
+		}
+
+		boolean remove = "remove".equals(System.getProperty("structuresremover.trial.mode", ""));
 		ChunkSupplier supplier = new ChunkSupplier.Square(index,
 				new ChunkPos(centreX >> 4, centreZ >> 4), radiusChunks);
-		ScanJob job = new ScanJob(world, UUID.randomUUID(), List.of(target), options, false, supplier, index);
+		ScanJob job = new ScanJob(world, UUID.randomUUID(), List.of(target), options, remove, supplier, index);
 
 		long start = System.nanoTime();
 		int guard = 0;
@@ -174,6 +186,119 @@ final class BotwTrial {
 			if (!known) {
 				StructuresRemover.LOGGER.info("[trial]   EXTRA  {}", match.origin().toShortString());
 			}
+		}
+
+		if (remove) {
+			verifyRemoval(world, index, target, options, centreX, centreZ, radiusChunks);
+		}
+	}
+
+	/**
+	 * After a removal, scanning the same ground again must come back empty: whatever is left would
+	 * be a copy the delete pass walked past.
+	 */
+	private static void verifyRemoval(ServerWorld world, RegionIndex index, Target target,
+			ScanOptions options, int centreX, int centreZ, int radiusChunks) {
+		ChunkSupplier supplier = new ChunkSupplier.Square(index,
+				new ChunkPos(centreX >> 4, centreZ >> 4), radiusChunks);
+		ScanJob check = new ScanJob(world, UUID.randomUUID(), List.of(target), options, false, supplier, index);
+		int guard = 0;
+
+		while (!check.tick() && guard++ < 5_000_000) {
+			// re-scan the area now that the structures should be gone
+		}
+
+		StructuresRemover.LOGGER.info("[trial] AFTER REMOVAL: {} copies still detected (expected 0)",
+				check.matches().size());
+
+		for (Match leftover : check.matches()) {
+			StructuresRemover.LOGGER.info("[trial]   LEFTOVER {}", leftover.origin().toShortString());
+		}
+	}
+
+	/** Greedy farthest-point pick, so the examples come from as different a setting as possible. */
+	private static List<BlockPos> spreadOut(List<BlockPos> all, int count) {
+		List<BlockPos> chosen = new ArrayList<>();
+
+		if (all.isEmpty()) {
+			return chosen;
+		}
+
+		chosen.add(all.get(0));
+
+		while (chosen.size() < Math.min(count, all.size())) {
+			BlockPos best = null;
+			double bestDistance = -1;
+
+			for (BlockPos candidate : all) {
+				if (chosen.contains(candidate)) {
+					continue;
+				}
+
+				double nearest = Double.MAX_VALUE;
+
+				for (BlockPos picked : chosen) {
+					nearest = Math.min(nearest, picked.getSquaredDistance(candidate));
+				}
+
+				if (nearest > bestDistance) {
+					bestDistance = nearest;
+					best = candidate;
+				}
+			}
+
+			if (best == null) {
+				break;
+			}
+
+			chosen.add(best);
+		}
+
+		return chosen;
+	}
+
+	/**
+	 * Runs the real scan in a small window around every known structure.
+	 *
+	 * <p>Measuring the detection rate does not need the whole map walked — only the places where an
+	 * answer is already known. This keeps the loaded chunk count small enough that the server can
+	 * still let go of them.
+	 */
+	private static void probeEachTarget(ServerWorld world, RegionIndex index, Target target,
+			ScanOptions options, List<BlockPos> truth) {
+		int found = 0;
+		int index0 = 0;
+		long start = System.nanoTime();
+		List<BlockPos> missed = new ArrayList<>();
+
+		for (BlockPos pos : truth) {
+			index0++;
+			ChunkSupplier supplier = new ChunkSupplier.Square(index,
+					new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4), 2);
+			ScanJob job = new ScanJob(world, UUID.randomUUID(), List.of(target), options, false, supplier, index);
+			int guard = 0;
+
+			while (!job.tick() && guard++ < 100_000) {
+				// drive this small scan to completion
+			}
+
+			if (job.matches().isEmpty()) {
+				missed.add(pos);
+			} else {
+				found++;
+			}
+
+			if (index0 % 25 == 0) {
+				StructuresRemover.LOGGER.info("[trial] probed {}/{}, found {}", index0, truth.size(), found);
+			}
+		}
+
+		StructuresRemover.LOGGER.info("[trial] ==========================================");
+		StructuresRemover.LOGGER.info("[trial] PROBE: {}/{} known structures detected in {}s",
+				found, truth.size(), String.format("%.0f", (System.nanoTime() - start) / 1e9));
+
+		for (BlockPos pos : missed) {
+			StructuresRemover.LOGGER.info("[trial]   MISSED {}", pos.toShortString());
 		}
 	}
 

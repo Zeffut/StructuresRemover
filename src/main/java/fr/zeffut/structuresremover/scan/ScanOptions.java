@@ -28,6 +28,14 @@ public final class ScanOptions {
 	 */
 	public boolean matchAir = false;
 
+	/**
+	 * Whether removal also clears blocks made of the structure's own materials inside a match.
+	 *
+	 * <p>Only does anything for a structure learnt from several examples, where those materials can
+	 * be told apart from the ground. It is what removes the parts that vary between copies.
+	 */
+	public boolean clearMaterials = true;
+
 	/** Block put in place of the removed structure. */
 	public BlockState fill = Blocks.AIR.getDefaultState();
 
@@ -62,6 +70,7 @@ public final class ScanOptions {
 		copy.mirrors = this.mirrors;
 		copy.tolerance = this.tolerance;
 		copy.matchAir = this.matchAir;
+		copy.clearMaterials = this.clearMaterials;
 		copy.fill = this.fill;
 		copy.keepOriginal = this.keepOriginal;
 		copy.removeEntities = this.removeEntities;

@@ -120,6 +120,7 @@ public final class StructuresRemoverCommand {
 						.then(boolOption("matchair", (options, value) -> options.matchAir = value))
 						.then(boolOption("keeporiginal", (options, value) -> options.keepOriginal = value))
 						.then(boolOption("removeentities", (options, value) -> options.removeEntities = value))
+						.then(boolOption("clearmaterials", (options, value) -> options.clearMaterials = value))
 						.then(intOption("tolerance", 1, 100, (options, value) -> options.tolerance = value))
 						.then(intOption("maxmatches", 0, 1_000_000, (options, value) -> options.maxMatches = value))
 						.then(intOption("chunkspertick", 1, 256, (options, value) -> options.chunksPerTick = value))
@@ -497,6 +498,7 @@ public final class StructuresRemoverCommand {
 				+ "\n  fill = " + options.fill.getBlock().getName().getString()
 				+ "\n  keeporiginal = " + options.keepOriginal
 				+ "\n  removeentities = " + options.removeEntities
+				+ "\n  clearmaterials = " + options.clearMaterials
 				+ "\n  maxmatches = " + (options.maxMatches == 0 ? "unlimited" : options.maxMatches)
 				+ "\n  chunkspertick = " + options.chunksPerTick
 				+ "\n  blockspertick = " + options.blocksPerTick;

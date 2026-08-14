@@ -76,7 +76,18 @@ comprise) et compte, case par case, combien d'exemplaires sont d'accord. Il en t
   différent sous chaque copie, disparaît de ce périmètre tout seul.
 
 Trois à cinq exemplaires suffisent en général. Un exemplaire qui ne s'aligne sur rien est refusé
-plutôt que d'affaiblir le motif, et `/sr list` indique combien de cases restent communes.
+plutôt que d'affaiblir le motif, et `/sr add` indique combien de cases restent communes.
+
+**Prends des exemplaires variés** — dans des terrains différents. Deux copies voisines posées sur
+le même sol apprennent ce sol comme faisant partie de la structure, et plus rien ne correspond
+ailleurs.
+
+À partir de deux exemplaires, le mod déduit aussi **les matériaux propres à la structure** : les
+blocs dont la plupart des occurrences tombent sur des cases où les exemplaires sont d'accord. Le
+terrain échoue à ce test par nature — il y en a beaucoup et deux copies creusées dans des collines
+différentes n'en alignent qu'une fraction. La suppression efface alors, à l'intérieur de chaque
+copie, tout bloc fait de ces matériaux : c'est ce qui emporte les parties qui varient (entrée,
+décoration) sans toucher au sol. Réglable avec `/sr set clearmaterials false`.
 
 ### Persistance
 
@@ -133,6 +144,7 @@ une sauvegarde de ta map.
 | `fill` | `air` | bloc mis à la place de la structure supprimée |
 | `keeporiginal` | `true` | ne touche pas à la copie d'où vient la sélection |
 | `removeentities` | `false` | supprime aussi les entités présentes dans la copie (cadres, armor stands…) |
+| `clearmaterials` | `true` | efface aussi les blocs faits des matériaux de la structure (motifs à plusieurs exemplaires) |
 | `maxmatches` | `0` | s'arrête après N copies (`0` = illimité) |
 | `chunkspertick` | `8` | chunks lus par tick pendant le scan — à baisser si le serveur lag |
 | `blockspertick` | `20000` | blocs écrits par tick pendant la suppression |

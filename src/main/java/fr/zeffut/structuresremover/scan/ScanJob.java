@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -42,6 +43,7 @@ public final class ScanJob implements Job {
 	private final UUID owner;
 	private final Map<BlockState, List<Target.Candidate>> candidatesByAnchor = new HashMap<>();
 	private final int targetCount;
+	private final Map<String, Set<Block>> materialsByPattern = new HashMap<>();
 	private final ScanOptions options;
 	private final boolean removeMode;
 	private final ChunkSupplier chunks;
@@ -78,6 +80,8 @@ public final class ScanJob implements Job {
 		// Every orientation of every structure is filed under the block the scan will look for, so
 		// a single pass over the world hunts them all at once.
 		for (Target target : targets) {
+			this.materialsByPattern.put(target.name(), target.materials());
+
 			for (PatternVariant variant : target.variants()) {
 				this.candidatesByAnchor
 						.computeIfAbsent(variant.anchorState(), state -> new ArrayList<>())
@@ -324,6 +328,9 @@ public final class ScanJob implements Job {
 
 			Match match = this.matches.get(this.matchCursor);
 			PatternVariant variant = match.variant();
+			Set<Block> materials = this.options.clearMaterials
+					? this.materialsByPattern.getOrDefault(match.patternName(), Set.of())
+					: Set.of();
 
 			if (this.cellCursor == 0 && this.options.removeEntities) {
 				this.removeEntities(match);
@@ -338,12 +345,15 @@ public final class ScanJob implements Job {
 				int z = (index / variant.sizeX()) % variant.sizeZ();
 				int y = index / (variant.sizeX() * variant.sizeZ());
 
-				if (!variant.isInFootprint(x, y, z)) {
-					continue;
-				}
-
 				cursor.set(match.origin().getX() + x, match.origin().getY() + y, match.origin().getZ() + z);
 				BlockState previous = this.world.getBlockState(cursor);
+
+				// Either the cell is part of what the examples agreed the structure occupies, or the
+				// block standing here is made of the structure's own materials — which is what
+				// catches the parts that differ from one copy to the next.
+				if (!variant.isInFootprint(x, y, z) && !materials.contains(previous.getBlock())) {
+					continue;
+				}
 
 				if (previous == this.options.fill) {
 					continue;

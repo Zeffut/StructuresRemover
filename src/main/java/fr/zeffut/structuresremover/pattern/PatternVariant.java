@@ -18,7 +18,7 @@ public record PatternVariant(
 		int sizeZ,
 		BlockState[] states,
 		int[] agreement,
-		int exampleCount,
+		int requiredAgreement,
 		BlockRotation rotation,
 		BlockMirror mirror,
 		int anchorX,
@@ -34,21 +34,29 @@ public record PatternVariant(
 
 	/** Whether this cell has to match, as opposed to only being cleared on removal. */
 	public boolean isRequired(int x, int y, int z) {
-		return this.agreement[(y * this.sizeZ + z) * this.sizeX + x] >= this.exampleCount;
+		// Air can be required too; matchAir decides whether an empty cell is held against the world.
+		return this.agreement[(y * this.sizeZ + z) * this.sizeX + x] >= this.requiredAgreement;
 	}
 
-	/** Whether removal clears this cell: present in most examples, so not just the ground. */
+	/** Whether removal clears this cell: carried by enough examples not to be just the ground. */
 	public boolean isInFootprint(int x, int y, int z) {
 		int i = (y * this.sizeZ + z) * this.sizeX + x;
-		return !this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount;
+		return !this.states[i].isAir() && this.agreement[i] >= footprintThreshold(this.requiredAgreement);
+	}
+
+	/** Removal reaches a little wider than matching, to catch the parts that vary. */
+	private static int footprintThreshold(int requiredAgreement) {
+		return Math.max(1, (requiredAgreement * 2) / 3);
 	}
 
 	/** Number of cells removal would clear. */
 	public int footprintCount() {
 		int count = 0;
 
+		int threshold = footprintThreshold(this.requiredAgreement);
+
 		for (int i = 0; i < this.states.length; i++) {
-			if (!this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount) {
+			if (!this.states[i].isAir() && this.agreement[i] >= threshold) {
 				count++;
 			}
 		}

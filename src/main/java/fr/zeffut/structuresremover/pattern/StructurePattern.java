@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -37,6 +38,18 @@ public final class StructurePattern {
 
 	/** Fixed-point scale for the rarity weighting used when lining two examples up. */
 	private static final int WEIGHT_SCALE = 1_000_000;
+
+	/**
+	 * How many examples must agree on a cell before the scan will match on it.
+	 *
+	 * <p>All of them. Settling for a majority was tried and measured worse: cells that most copies
+	 * share but one lacks then become mandatory, and every copy missing one is rejected outright.
+	 * Unanimity is what makes a required cell something the scan can rely on; {@code tolerance} is
+	 * the knob for letting copies differ.
+	 */
+	private static int requiredAgreement(int exampleCount) {
+		return Math.max(1, exampleCount);
+	}
 
 	/**
 	 * Blocks that make terrible anchors: they show up everywhere in a world, so using one would
@@ -196,6 +209,51 @@ public final class StructurePattern {
 				Math.max(1, exampleCount), origin);
 	}
 
+	/**
+	 * The block types that belong to the structure itself rather than the ground it sits in.
+	 *
+	 * <p>A type qualifies when most of the cells holding it are cells the examples agreed on. The
+	 * ground fails that test by its own nature: there is a lot of it, and two copies cut into
+	 * different hillsides only ever line up a small fraction of it, so its agreement stays low
+	 * across a large number of cells. A wall of the structure behaves the opposite way.
+	 *
+	 * <p>Only meaningful once several examples have been merged; a single example agrees with
+	 * itself everywhere, so everything in the box would qualify.
+	 */
+	public Set<Block> structureMaterials() {
+		if (this.exampleCount < 2) {
+			return Set.of();
+		}
+
+		int threshold = footprintAgreement(this.exampleCount);
+		Map<Block, int[]> tally = new HashMap<>();
+
+		for (int i = 0; i < this.states.length; i++) {
+			if (this.states[i].isAir()) {
+				continue;
+			}
+
+			int[] counts = tally.computeIfAbsent(this.states[i].getBlock(), block -> new int[2]);
+			counts[0]++;
+
+			if (this.agreement[i] >= threshold) {
+				counts[1]++;
+			}
+		}
+
+		Set<Block> materials = new HashSet<>();
+
+		for (Map.Entry<Block, int[]> entry : tally.entrySet()) {
+			int[] counts = entry.getValue();
+
+			if (counts[1] * 2 >= counts[0]) {
+				materials.add(entry.getKey());
+			}
+		}
+
+		return materials;
+	}
+
 	/** Per-cell agreement counts, for the storage layer. */
 	public int[] agreementCounts() {
 		return this.agreement.clone();
@@ -217,7 +275,9 @@ public final class StructurePattern {
 	 * required: they are still cleared on removal, but they never reject a candidate.
 	 */
 	public boolean isRequired(int x, int y, int z) {
-		return this.agreement[index(x, y, z, this.sizeX, this.sizeZ)] >= this.exampleCount;
+		// Air can be required too: when every example is empty here, that emptiness is part of the
+		// structure and matchAir is what decides whether to hold the world to it.
+		return this.agreement[index(x, y, z, this.sizeX, this.sizeZ)] >= requiredAgreement(this.exampleCount);
 	}
 
 	/**
@@ -227,7 +287,12 @@ public final class StructurePattern {
 	 */
 	public boolean isInFootprint(int x, int y, int z) {
 		int i = index(x, y, z, this.sizeX, this.sizeZ);
-		return !this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount;
+		return !this.states[i].isAir() && this.agreement[i] >= footprintAgreement(this.exampleCount);
+	}
+
+	/** Removal reaches a little wider than matching, to catch the parts that vary between copies. */
+	private static int footprintAgreement(int exampleCount) {
+		return Math.max(1, (requiredAgreement(exampleCount) * 2) / 3);
 	}
 
 	/** How many examples were merged into this pattern. */
@@ -239,8 +304,10 @@ public final class StructurePattern {
 	public int getRequiredCount() {
 		int count = 0;
 
+		int threshold = requiredAgreement(this.exampleCount);
+
 		for (int i = 0; i < this.agreement.length; i++) {
-			if (this.agreement[i] >= this.exampleCount && !this.states[i].isAir()) {
+			if (this.agreement[i] >= threshold && !this.states[i].isAir()) {
 				count++;
 			}
 		}
@@ -252,8 +319,10 @@ public final class StructurePattern {
 	public int getFootprintCount() {
 		int count = 0;
 
+		int threshold = footprintAgreement(this.exampleCount);
+
 		for (int i = 0; i < this.agreement.length; i++) {
-			if (!this.states[i].isAir() && this.agreement[i] * 2 >= this.exampleCount) {
+			if (!this.states[i].isAir() && this.agreement[i] >= threshold) {
 				count++;
 			}
 		}
@@ -633,8 +702,10 @@ public final class StructurePattern {
 		Map<BlockState, Integer> counts = new HashMap<>();
 
 		// Only a required cell can anchor the scan: an optional one may simply not be there.
+		int threshold = requiredAgreement(this.exampleCount);
+
 		for (int i = 0; i < states.length; i++) {
-			if (agreement[i] >= this.exampleCount && !states[i].isAir()) {
+			if (agreement[i] >= threshold && !states[i].isAir()) {
 				counts.merge(states[i], 1, Integer::sum);
 			}
 		}
@@ -665,7 +736,7 @@ public final class StructurePattern {
 				for (int x = 0; x < sizeX; x++) {
 					int i = index(x, y, z, sizeX, sizeZ);
 
-					if (agreement[i] >= this.exampleCount && states[i] == best) {
+					if (agreement[i] >= threshold && states[i] == best) {
 						anchorX = x;
 						anchorY = y;
 						anchorZ = z;
@@ -682,13 +753,13 @@ public final class StructurePattern {
 			if (!states[i].isAir()) {
 				solid++;
 
-				if (agreement[i] >= this.exampleCount) {
+				if (agreement[i] >= threshold) {
 					requiredSolid++;
 				}
 			}
 		}
 
-		return new PatternVariant(sizeX, sizeY, sizeZ, states, agreement, this.exampleCount, rotation, mirror,
+		return new PatternVariant(sizeX, sizeY, sizeZ, states, agreement, threshold, rotation, mirror,
 				anchorX, anchorY, anchorZ, best, solid, requiredSolid);
 	}
 

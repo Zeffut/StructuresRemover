@@ -47,6 +47,8 @@ loom {
 			property "structuresremover.trial.examples", System.getProperty("srexamples", "4")
 			property "structuresremover.trial.box", System.getProperty("srbox", "14")
 			property "structuresremover.trial.tolerance", System.getProperty("srtol", "100")
+			property "structuresremover.trial.mode", System.getProperty("srmode", "")
+			property "structuresremover.trial.globalexamples", System.getProperty("srglobal", "false")
 			vmArg "-Xmx6G"
 		}
 	}
