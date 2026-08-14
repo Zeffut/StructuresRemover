@@ -10,6 +10,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.tree.LiteralCommandNode;
+import fr.zeffut.structuresremover.PurgeJob;
 import fr.zeffut.structuresremover.pattern.SavedPattern;
 import fr.zeffut.structuresremover.pattern.StructurePattern;
 import fr.zeffut.structuresremover.scan.ChunkSupplier;
@@ -43,9 +44,12 @@ import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.BiConsumer;
 
 import static net.minecraft.server.command.CommandManager.argument;
@@ -116,6 +120,13 @@ public final class StructuresRemoverCommand {
 						.then(argument("name", StringArgumentType.word())
 								.suggests(PATTERN_NAMES)
 								.executes(StructuresRemoverCommand::forgetPattern)))
+				.then(literal("purge")
+						.then(literal("stop").executes(StructuresRemoverCommand::stopPurge))
+						.then(argument("file", StringArgumentType.greedyString())
+								.executes(context -> startPurge(context, false))))
+				.then(literal("purgedry")
+						.then(argument("file", StringArgumentType.greedyString())
+								.executes(context -> startPurge(context, true))))
 				.then(literal("options").executes(StructuresRemoverCommand::showOptions))
 				.then(literal("set")
 						.then(boolOption("rotations", (options, value) -> options.rotations = value))
@@ -647,6 +658,56 @@ public final class StructuresRemoverCommand {
 		return feedback(context, "Restoring " + record.size() + " blocks...");
 	}
 
+	// ---------------------------------------------------------------- purge from a list
+
+	/**
+	 * Clears an explicit list of blocks produced by scanning the map outside the game.
+	 *
+	 * <p>The work is spread over ticks, so a server stays playable while it runs — a whole-map list
+	 * is over a million blocks and takes minutes. Progress goes to the server log; {@code /sr purge
+	 * stop} abandons it, leaving what has already been cleared cleared.
+	 */
+	private static int startPurge(CommandContext<ServerCommandSource> context, boolean dryRun) {
+		if (PurgeJob.running() != null) {
+			return error(context, "A purge is already running. /sr purge stop to abandon it.");
+		}
+
+		Path file = Path.of(StringArgumentType.getString(context, "file"));
+
+		if (!Files.isReadable(file)) {
+			return error(context, "No readable file at " + file.toAbsolutePath());
+		}
+
+		PurgeJob job;
+
+		try {
+			job = PurgeJob.read(context.getSource().getWorld(), file, dryRun);
+		} catch (Exception exception) {
+			return error(context, "Could not read the list: " + exception.getMessage());
+		}
+
+		if (job.listed() == 0) {
+			return error(context, "That file lists no blocks. Lines look like: x y z minecraft:oak_planks");
+		}
+
+		PurgeJob.start(job);
+		return feedback(context, String.format(Locale.ROOT,
+				"Clearing %d blocks across %d chunks%s. Progress is in the server log.",
+				job.listed(), job.chunkCount(), dryRun ? " (dry run, nothing is written)" : ""));
+	}
+
+	private static int stopPurge(CommandContext<ServerCommandSource> context) {
+		PurgeJob job = PurgeJob.stop();
+
+		if (job == null) {
+			return error(context, "No purge is running.");
+		}
+
+		job.report();
+		return feedback(context, "Stopped after " + job.chunksDone() + " of " + job.chunkCount()
+				+ " chunks. " + job.summary());
+	}
+
 	// ---------------------------------------------------------------- misc
 
 	private static int help(CommandContext<ServerCommandSource> context) {
@@ -665,7 +726,11 @@ public final class StructuresRemoverCommand {
 				  /sr scan world|radius <n> count copies, changes nothing
 				  /sr remove world|radius <n>
 				  /sr status | cancel | undo
-				  /sr options | set <option> <value>""";
+				  /sr options | set <option> <value>
+				Clearing a list made outside the game
+				  /sr purge <file>          clear every block the file names
+				  /sr purgedry <file>       same checks, writes nothing
+				  /sr purge stop""";
 
 		context.getSource().sendFeedback(() -> Chat.prefixed(
 				Text.literal("StructuresRemover\n").formatted(Formatting.AQUA)

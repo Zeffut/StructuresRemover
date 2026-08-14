@@ -34,6 +34,7 @@ public class StructuresRemover implements ModInitializer {
 				StructuresRemoverCommand.register(dispatcher, registryAccess));
 
 		ServerTickEvents.END_SERVER_TICK.register(JobManager::tick);
+		ServerTickEvents.END_SERVER_TICK.register(PurgeJob::tick);
 		ServerTickEvents.END_SERVER_TICK.register(SelectionRenderer::tick);
 		ServerTickEvents.END_SERVER_TICK.register(StructuresRemover::flushPeriodically);
 
@@ -43,6 +44,16 @@ public class StructuresRemover implements ModInitializer {
 			// A half-applied removal must not be left dangling across a restart.
 			JobManager.cancel();
 			JobManager.reset();
+
+			PurgeJob stopped = PurgeJob.stop();
+
+			if (stopped != null) {
+				// Whatever it had already cleared is cleared; saying where it got to is the only way
+				// to know which part of the list still needs doing.
+				LOGGER.warn("[purge] server stopping after {} of {} chunks", stopped.chunksDone(),
+						stopped.chunkCount());
+				stopped.report();
+			}
 
 			// Selections and saved structures outlive the server; the undo history does not,
 			// because it describes blocks that may be rewritten before the next start.
