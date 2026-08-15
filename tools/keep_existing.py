@@ -72,6 +72,10 @@ def main():
                     dropped += 1
 
     print('%d kept, %d dropped for sitting in a chunk that does not exist' % (kept, dropped))
+
+    if dropped > total // 100:
+        print('WARNING: more than one position in a hundred is in a chunk that does not exist.')
+        print('         That usually means this list was built from a different map.')
     print('%d of the regions do not exist at all' % missing_regions)
     print('written to %s' % out_path)
 
