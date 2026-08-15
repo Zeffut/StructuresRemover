@@ -74,14 +74,23 @@ def families(clumps, min_members=MIN_MEMBERS, min_blocks=MIN_BLOCKS, spread=SPRE
             continue
 
         sizes = sorted(e[0] for e in members)
+        middle = sizes[len(sizes) // 2]
+
+        # The odd giant is dropped from the family, not held against it. Disqualifying the whole
+        # group on one outlier was the earlier rule and it was expensive: 59 clumps of the map's
+        # ancient guardians sit between 51 and 90 blocks, and one of them had grown into the
+        # building beside it at 495 — so all 59 were passed over. A member that far off is not the
+        # thing being counted, and the rest still are.
+        members = [e for e in members if e[0] <= middle * spread]
+
+        if len(members) < min_members:
+            continue
+
+        sizes = sorted(e[0] for e in members)
         low = sizes[len(sizes) // 10]
         high = sizes[9 * len(sizes) // 10]
 
         if low <= 0 or high / low > spread:
-            continue
-
-        # One outlier the size of a castle means the group is a material, not a family.
-        if sizes[-1] > sizes[len(sizes) // 2] * spread * 2:
             continue
 
         if is_kept(key):

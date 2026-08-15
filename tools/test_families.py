@@ -43,11 +43,15 @@ def main():
     passed.append(check('the same materials at every size form no family',
                         families.families(spread, min_members=8, min_blocks=60) == []))
 
-    # One outlier is enough to say the group is not a repeated structure.
+    # One outlier is dropped from the family rather than held against it. Disqualifying the group
+    # instead was the earlier rule, and it passed over 59 of the map's guardians because one of them
+    # had grown into the building next door.
     with_castle = [clump(200, WOOD, (i * 100, 64, 0)) for i in range(20)]
     with_castle.append(clump(100000, WOOD, (9999, 64, 0)))
-    passed.append(check('one clump the size of a castle disqualifies the group',
-                        families.families(with_castle, min_members=8, min_blocks=60) == []))
+    found = families.families(with_castle, min_members=8, min_blocks=60)
+    passed.append(check('a clump the size of a castle is left out, its family kept',
+                        len(found) == 1 and found[0]['count'] == 20
+                        and found[0]['largest'] < 1000))
 
     # Families are kept apart by what they are made of.
     mixed = ([clump(200, WOOD, (i * 100, 64, 0)) for i in range(10)]
