@@ -23,6 +23,14 @@ try:
 except ImportError:
     np = None
 
+# Blocks the game renames as it upgrades a world. A world is read here as it was saved and by the
+# server through its upgrades, so these differ without anything having been done to them.
+RENAMES = {
+    ('minecraft:chain', 'minecraft:iron_chain'),
+    ('minecraft:grass', 'minecraft:short_grass'),
+    ('minecraft:grass_path', 'minecraft:dirt_path'),
+}
+
 ORIGINAL = 'extracted/botwproject/region'
 PURGED = '../StructuresRemover/run/alltest/region'
 
@@ -67,11 +75,20 @@ def section_names(section):
     return out
 
 
-def chunk_sections(path):
-    """{(chunk x, chunk z, section y): [names]} for one region file."""
+def chunk_sections(path, wanted=None):
+    """{(chunk x, chunk z, section y): [names]} for one region file.
+
+    ``wanted`` limits it to the chunks the deletion list touches. Decoding every section of every
+    chunk in a region means unpacking tens of millions of blocks that the purge never looked at, and
+    over 788 regions that does not finish. The purge can only alter a chunk it loads, and it only
+    loads the chunks the list names, so those are the ones compared.
+    """
     out = {}
 
     for cx, cz, offset, sectors in survey.chunk_entries(path):
+        if wanted is not None and (cx, cz) not in wanted:
+            continue
+
         raw = survey.read_chunk(path, offset, sectors)
 
         if raw is None:
@@ -93,9 +110,9 @@ def chunk_sections(path):
 
 def compare(args):
     """Every block that differs between the two copies of one region."""
-    name, = args
-    before = chunk_sections(os.path.join(ORIGINAL, name))
-    after = chunk_sections(os.path.join(PURGED, name))
+    name, wanted = args
+    before = chunk_sections(os.path.join(ORIGINAL, name), wanted)
+    after = chunk_sections(os.path.join(PURGED, name), wanted)
     changes = []
 
     for key, old in before.items():
@@ -130,18 +147,27 @@ def main():
             parts = line.split()
             listed[(int(parts[0]), int(parts[1]), int(parts[2]))] = parts[3]
 
-    regions = sorted({'r.%d.%d.mca' % (x >> 9, z >> 9) for x, y, z in listed})
-    print('%d blocks listed, spread over %d regions' % (len(listed), len(regions)), flush=True)
+    touched = defaultdict(set)
+
+    for x, y, z in listed:
+        touched['r.%d.%d.mca' % (x >> 9, z >> 9)].add((x >> 4, z >> 4))
+
+    regions = sorted(touched)
+    print('%d blocks listed, in %d chunks across %d regions'
+          % (len(listed), sum(len(v) for v in touched.values()), len(regions)), flush=True)
 
     cleared = 0
     renamed = Counter()
     survived = []
     listed_terrain = []
+    created = Counter()
+    destroyed = []
     unexpected = []
     done = 0
 
     with Pool(workers) as pool:
-        for name, changes in pool.imap_unordered(compare, [(r,) for r in regions], chunksize=1):
+        for name, changes in pool.imap_unordered(
+                compare, [(r, touched[r]) for r in regions], chunksize=1):
             done += 1
 
             for x, y, z, old, new in changes:
@@ -157,9 +183,16 @@ def main():
                             listed_terrain.append((x, y, z, old))
                     else:
                         survived.append((x, y, z, old, new))
-                elif old.replace('minecraft:chain', 'minecraft:iron_chain') == new:
+                elif (old, new) in RENAMES:
                     # The game renamed this while upgrading the world; nothing was deleted.
                     renamed[old + ' -> ' + new] += 1
+                elif old == 'minecraft:air':
+                    # Something appeared where there was nothing. Not a deletion, but the world did
+                    # change: loading a chunk saved before it was finished lets generation resume.
+                    created[new] += 1
+                elif new == 'minecraft:air':
+                    # The failure this exists to catch: a block destroyed that nobody listed.
+                    destroyed.append((x, y, z, old))
                 else:
                     unexpected.append((x, y, z, old, new))
 
@@ -174,7 +207,17 @@ def main():
         print('  %d %d %d  %s was deleted' % (x, y, z, old))
 
     print('%d listed blocks changed into something other than air' % len(survived))
-    print('%d blocks changed that were not on the list' % len(unexpected))
+    print('\n%d blocks were destroyed that were not on the list' % len(destroyed))
+
+    for x, y, z, old in destroyed[:10]:
+        print('  %d %d %d  %s' % (x, y, z, old))
+
+    print('%d blocks appeared where there was air' % sum(created.values()))
+
+    for name, count in created.most_common(8):
+        print('  %s x%d' % (name, count))
+
+    print('%d blocks changed in some other way' % len(unexpected))
 
     if renamed:
         print('\nrenamed by the game while upgrading the world, not deleted:')
@@ -184,11 +227,11 @@ def main():
 
     # Tested on the block that was there BEFORE: a landscape block destroyed shows up as the old
     # value, not the new one. Asking what it became would answer a different question.
-    terrain = [c for c in unexpected if discover.is_terrain(c[3])]
-    print('\nof the unlisted changes, %d were landscape blocks' % len(terrain))
+    terrain = [c for c in destroyed if discover.is_terrain(c[3])]
+    print('\nof the blocks destroyed off the list, %d were landscape' % len(terrain))
 
-    for x, y, z, old, new in terrain[:10]:
-        print('  %d %d %d  %s -> %s' % (x, y, z, old, new))
+    for x, y, z, old in terrain[:10]:
+        print('  %d %d %d  %s' % (x, y, z, old))
 
     kinds = Counter('%s -> %s' % (c[3], c[4]) for c in unexpected)
 
