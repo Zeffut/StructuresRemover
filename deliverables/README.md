@@ -1,6 +1,6 @@
 # The cleaned map, as a deletion list
 
-`server_verify.txt.gz` is the whole job: **1,538,786 block positions**, one per line, in the form
+`server_verify2.txt.gz` is the whole job: **1,685,107 block positions**, one per line, in the form
 
     x y z minecraft:oak_planks
 
@@ -52,13 +52,24 @@ consulting the list:
 | | |
 |---|---|
 | shrines removed | 137 of 137 |
-| repeated structures | 12,005 across 83 families |
+| repeated structures | 15,713 across 126 families |
 | stone and ice creatures | 28 of 32, bodies included |
-| listed blocks cleared | 1,538,786 of 1,538,786 |
-| refused as landscape | 0 |
+| listed blocks cleared | 1,685,106 of 1,685,107 |
+| refused as landscape | 1, correctly — the list said hay block, the world had a dirt path |
 | **blocks destroyed that were not on the list** | **0** |
 | landscape destroyed, unasked | 0 |
 | landscape destroyed where it was asked for | 6,231 |
+
+The extra 3,708 structures over the first pass are small things repeated many times — a prop placed
+1,964 times, and 42 other families like it. They were not simply let in by lowering the size floor:
+lowering it globally makes the result *worse*, because it changes which clumps group together and
+the outlier rule then throws out large structures that used to pass — 2,633 more structures but
+166,647 fewer blocks. They are added on top instead, and only where they stand on their own.
+
+What decides that is what stands near them, checked on the map: a prop in a field has ground and air
+around it, a patch of wall has the rest of the village. Of 94 such families, 43 stand alone and are
+taken; 51 sit inside built-up places and are left — village farms, mineshaft chains, and a piece of
+light blue terracotta that is part of a larger build.
 
 Built from, and verified against, **the world the server is actually running** — taken from its
 automatic backup of 15 August, 17:10 (id 18169549). That matters: an earlier list, built from the
