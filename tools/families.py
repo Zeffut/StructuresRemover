@@ -34,8 +34,14 @@ MIN_BLOCKS = 60
 #
 # The honey block trees are the case that proves it: 559 of them, 147,247 blocks, a fifth of
 # everything the list touched on the playable map, and they are deliberate decor.
+# Written as the smallest signature that identifies the thing, not as its full palette. The first
+# attempt asked for honey block and honeycomb block together and never matched anything: a clump is
+# summarised by its three commonest materials, and in these trees honey comes fifth and honeycomb
+# seventh. The family that actually holds them is summarised as acacia fence and orange carpet.
 KEEP = (
-    {'minecraft:honey_block', 'minecraft:honeycomb_block'},
+    {'minecraft:honey_block'},
+    {'minecraft:honeycomb_block'},
+    {'minecraft:acacia_fence', 'minecraft:orange_carpet'},
 )
 
 
