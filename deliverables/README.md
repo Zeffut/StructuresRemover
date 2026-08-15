@@ -1,6 +1,6 @@
 # The cleaned map, as a deletion list
 
-`verify_all.txt.gz` is the whole job: **1,613,981 block positions**, one per line, in the form
+`server_verify.txt.gz` is the whole job: **1,538,786 block positions**, one per line, in the form
 
     x y z minecraft:oak_planks
 
@@ -10,22 +10,22 @@ box or a radius, so there is no way for it to reach a block that was not individ
 part of a repeated structure.
 
 The map itself is not here: 5.9 GB unpacked, 2.6 GB compressed, far past what a git repository
-holds. The list is 5.6 MB and produces the same result.
+holds. The list is 5.3 MB and produces the same result.
 
 ## Applying it
 
 Needs a **Fabric** server on 1.21.11 with this mod in `mods/` — Paper and Spigot will not load it.
 The map is cleaned offline, once; the server it eventually runs on does not need the mod at all.
 
-    gunzip verify_all.txt.gz
+    gunzip server_verify.txt.gz
 
 Point the server at a copy of the map, then either run it once with
 
-    java -Dstructuresremover.purge=/full/path/to/verify_all.txt -jar fabric-server.jar
+    java -Dstructuresremover.purge=/full/path/to/server_verify.txt -jar fabric-server.jar
 
 or, on a server already running, from the console or in game as an operator:
 
-    /sr purge /full/path/to/verify_all.txt
+    /sr purge /full/path/to/server_verify.txt
 
 `/sr purgedry <file>` runs every check and writes nothing, which is the safe way to see what it
 would do first. `/sr purge stop` abandons a run in progress. Work is spread over ticks, so the
@@ -33,7 +33,7 @@ server stays playable; a list this size takes a few minutes.
 
 Either way the tally lands in the server log:
 
-    [purge] cleared N blocks of 1613981 listed
+    [purge] cleared N blocks of 1532555 listed
     [purge] refused because the block was landscape: 0
     [purge] cleared under a different name than listed: N
 
@@ -52,28 +52,35 @@ consulting the list:
 | | |
 |---|---|
 | shrines removed | 137 of 137 |
-| repeated structures | 12,149 across 89 families |
-| stone and ice creatures | 30 of 35, bodies included |
-| listed blocks cleared | 1,613,981 of 1,613,981 |
+| repeated structures | 12,005 across 83 families |
+| stone and ice creatures | 28 of 32, bodies included |
+| listed blocks cleared | 1,538,786 of 1,538,786 |
 | refused as landscape | 0 |
 | **blocks destroyed that were not on the list** | **0** |
 | landscape destroyed, unasked | 0 |
-| landscape destroyed where it was asked for | 6,647 |
+| landscape destroyed where it was asked for | 6,231 |
+
+Built from, and verified against, **the world the server is actually running** — taken from its
+automatic backup of 15 August, 17:10 (id 18169549). That matters: an earlier list, built from the
+project's archive, had 66,825 positions holding landscape when tried against this world and 303
+kinds of name mismatch. The two are not the same map. Before any of this was applied, every listed
+position was checked against the world it names: **1,538,786 of 1,538,786 hold exactly the block the
+list says**.
 
 Two things the diff reports that are not deletions. The game renames blocks as it upgrades a world —
-853,205 `chain` to `iron_chain` and 1,466 `grass` to `short_grass` — so those differ without anything
+790,465 `chain` to `iron_chain` and 1,512 `grass` to `short_grass` — so those differ without anything
 having been done to them. And 66 blocks appeared where there was air: 42 oak leaves, 17 dandelions,
 a few flowers and one hay bale. Loading a chunk that was saved before its generation had finished
 lets that generation resume, which places them. Nothing was destroyed by it.
 
-The 6,647 landscape blocks are the bodies of the map's stone and ice creatures, which are built out
+The 6,231 landscape blocks are the bodies of the map's stone and ice creatures, which are built out
 of ice, stone, cobblestone and andesite — the blocks everything else here refuses to touch. Removing
-them means breaking that rule on purpose, so it is done from a separate list, `creature_bodies.txt`,
+them means breaking that rule on purpose, so it is done from a separate list, `server_bodies.txt`,
 and needs a flag the run has to be given explicitly:
 
-    java -Dstructuresremover.purge=creature_bodies.txt -Dstructuresremover.purge.terrain=true ...
+    java -Dstructuresremover.purge=server_bodies.txt -Dstructuresremover.purge.terrain=true ...
 
-Five of the 35 creatures were left alone: their bodies ran on past 600 blocks, meaning the fill had
+Four of the 32 creatures were left alone: their bodies ran on past 600 blocks, meaning the fill had
 walked out of the creature and into the hillside, and the right answer there is to take nothing.
 
 The honey block trees are deliberately **not** in the list: 630 of them, 164,724 blocks, kept at the

@@ -31,7 +31,7 @@ RENAMES = {
     ('minecraft:grass_path', 'minecraft:dirt_path'),
 }
 
-ORIGINAL = 'extracted/botwproject/region'
+ORIGINAL = os.environ.get('SR_ORIGINAL', 'extracted/botwproject/region')
 PURGED = '../StructuresRemover/run/alltest/region'
 
 
