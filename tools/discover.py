@@ -62,6 +62,10 @@ NATURAL_EXACT = {
     'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:vine',
     'minecraft:kelp', 'minecraft:kelp_plant', 'minecraft:seagrass', 'minecraft:tall_seagrass',
     'minecraft:short_grass', 'minecraft:tall_grass', 'minecraft:fern', 'minecraft:large_fern',
+    # The names this map still uses, from before the game renamed them. A world is read here as it
+    # was saved, but the server reads it through its upgrades: 215 blocks written as grass came back
+    # as short grass and were refused at write time, which is the right answer arrived at late.
+    'minecraft:grass', 'minecraft:grass_path',
     'minecraft:dead_bush', 'minecraft:cactus', 'minecraft:sugar_cane', 'minecraft:lily_pad',
     'minecraft:snow', 'minecraft:cobweb', 'minecraft:glow_lichen', 'minecraft:sculk',
     'minecraft:sculk_vein', 'minecraft:pointed_dripstone', 'minecraft:dripstone_block',

@@ -8,7 +8,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.chunk.ChunkStatus;
 
 import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
@@ -56,11 +55,11 @@ public final class PurgeJob {
 
 	private final BlockPos.Mutable cursor = new BlockPos.Mutable();
 	private final Map<String, Integer> renames = new TreeMap<>();
+	private final Map<String, Integer> refusals = new TreeMap<>();
 
 	private boolean stopServerWhenDone;
 	private long cleared;
 	private long refusedTerrain;
-	private long skippedAbsent;
 	private long renamed;
 	private int chunksDone;
 
@@ -147,8 +146,7 @@ public final class PurgeJob {
 	 */
 	public boolean step(MinecraftServer server) {
 		for (int i = 0; i < CHUNKS_PER_TICK && remaining.hasNext(); i++) {
-			Map.Entry<Long, List<int[]>> next = remaining.next();
-			applyChunk(new ChunkPos(next.getKey()), next.getValue());
+			applyChunk(remaining.next().getValue());
 			chunksDone++;
 
 			if (chunksDone % REPORT_EVERY == 0) {
@@ -211,17 +209,13 @@ public final class PurgeJob {
 		this.stopServerWhenDone = true;
 	}
 
-	private void applyChunk(ChunkPos where, List<int[]> entries) {
-		// Asked for without creating it. Reading a block goes through the chunk manager, and on a
-		// chunk the world has never generated that call does not return nothing — it generates the
-		// chunk, writes it to disk, and hands back the fresh terrain. Doing that once per position
-		// turned a deletion pass into a world generator: six hundred thousand blocks brought into
-		// existence that were on no list, and two region files that had not existed before.
-		if (world.getChunk(where.x, where.z, ChunkStatus.FULL, false) == null) {
-			skippedAbsent += entries.size();
-			return;
-		}
-
+	private void applyChunk(List<int[]> entries) {
+		// Only chunks the world already holds are skipped here, and that is not the same question as
+		// whether the chunk exists. Asking for one without creating it returns nothing when it is
+		// merely not loaded yet, which is nearly always: guarding on it skipped 1,102,674 positions
+		// out of 1,104,726 and cleared 2,052. Whether a chunk exists is settled where the answer
+		// actually lives — in the region files, by keep_existing.py, before the list is ever handed
+		// over. Every position that reaches this point is in a chunk that is really there.
 		BlockState air = Blocks.AIR.getDefaultState();
 
 		for (int[] entry : entries) {
@@ -229,6 +223,10 @@ public final class PurgeJob {
 			BlockState present = world.getBlockState(cursor);
 
 			if (BulkPurge.isTerrain(present.getBlock())) {
+				// Named, not just counted. A refusal means the list and the world disagree about
+				// what is standing somewhere, and the only useful form of that news is which block.
+				refusals.merge(names.get(entry[3]) + " is now "
+						+ Registries.BLOCK.getId(present.getBlock()), 1, Integer::sum);
 				refusedTerrain++;
 				continue;
 			}
@@ -259,7 +257,10 @@ public final class PurgeJob {
 		StructuresRemover.LOGGER.info("[purge] ==========================================");
 		StructuresRemover.LOGGER.info("[purge] cleared {} blocks of {} listed", cleared, listed);
 		StructuresRemover.LOGGER.info("[purge] refused because the block was landscape: {}", refusedTerrain);
-		StructuresRemover.LOGGER.info("[purge] skipped because the chunk does not exist: {}", skippedAbsent);
+
+		for (Map.Entry<String, Integer> entry : refusals.entrySet()) {
+			StructuresRemover.LOGGER.info("[purge]   {} x{}", entry.getKey(), entry.getValue());
+		}
 		StructuresRemover.LOGGER.info("[purge] cleared under a different name than listed: {}", renamed);
 
 		for (Map.Entry<String, Integer> entry : renames.entrySet()) {
@@ -270,8 +271,7 @@ public final class PurgeJob {
 	/** A one-line summary for whoever asked for the run. */
 	public String summary() {
 		return String.format(Locale.ROOT,
-				"%d blocks cleared of %d listed, %d refused as landscape, %d in chunks that do not "
-						+ "exist, %d renamed by the game",
-				cleared, listed, refusedTerrain, skippedAbsent, renamed);
+				"%d blocks cleared of %d listed, %d refused as landscape, %d renamed by the game",
+				cleared, listed, refusedTerrain, renamed);
 	}
 }
