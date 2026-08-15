@@ -85,8 +85,21 @@ WORKED_MARKERS = (
 )
 
 
+# Blocks that are not there in any sense a player would recognise: markers left by structure blocks,
+# invisible light sources, barriers. They are placed by tooling rather than built, and counting them
+# as structure distorts everything downstream — seven towers on this map came out at 36,000 blocks
+# each when the visible build is about 1,700, because 95% of what was counted was structure void.
+TECHNICAL = {
+    'minecraft:structure_void', 'minecraft:structure_block', 'minecraft:jigsaw',
+    'minecraft:barrier', 'minecraft:light', 'minecraft:moving_piston',
+}
+
+
 def is_terrain(name):
     """True for anything that is landscape rather than something someone built."""
+    if name in TECHNICAL:
+        return True
+
     if name in NATURAL_EXACT:
         return True
 

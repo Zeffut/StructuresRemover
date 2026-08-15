@@ -83,3 +83,12 @@ while upgrading the world to 1.21.11, not deletions.
 Alongside the 137 shrines, 39 unmarked structures were removed. Every one of them contains the
 shrine's own glazed terracotta; several are plainly shrines the datapack does not mark, sitting
 together off to one side of the map.
+
+## Reading the map's own answer key
+
+    python3 tags.py            # every marker tag in the map, with counts
+    python3 tags.py interior   # the positions of one kind
+
+The shrine datapack tags a marker entity at each shrine. Those markers live in the map's entity
+regions, not in anything this project produced, so they can always be read back — which matters,
+because a scan artefact can be lost while the map cannot. 137 exteriors and 136 interiors.

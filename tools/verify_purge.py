@@ -136,6 +136,7 @@ def main():
     cleared = 0
     renamed = Counter()
     survived = []
+    listed_terrain = []
     unexpected = []
     done = 0
 
@@ -147,6 +148,13 @@ def main():
                 if (x, y, z) in listed:
                     if new == 'minecraft:air':
                         cleared += 1
+
+                        if discover.is_terrain(old):
+                            # The one failure the unlisted-changes check below cannot see. A listed
+                            # position holding a landscape block should have been refused at write
+                            # time; if it was cleared anyway it counts as cleared and nothing else
+                            # would ever mention it.
+                            listed_terrain.append((x, y, z, old))
                     else:
                         survived.append((x, y, z, old, new))
                 elif old.replace('minecraft:chain', 'minecraft:iron_chain') == new:
@@ -160,6 +168,11 @@ def main():
                       % (done, len(regions), cleared, len(unexpected)), flush=True)
 
     print('\n%d of %d listed blocks are now air' % (cleared, len(listed)))
+    print('%d of those were landscape blocks and should have been refused' % len(listed_terrain))
+
+    for x, y, z, old in listed_terrain[:10]:
+        print('  %d %d %d  %s was deleted' % (x, y, z, old))
+
     print('%d listed blocks changed into something other than air' % len(survived))
     print('%d blocks changed that were not on the list' % len(unexpected))
 
@@ -169,6 +182,8 @@ def main():
         for text, count in renamed.most_common(5):
             print('  %s x%d' % (text, count))
 
+    # Tested on the block that was there BEFORE: a landscape block destroyed shows up as the old
+    # value, not the new one. Asking what it became would answer a different question.
     terrain = [c for c in unexpected if discover.is_terrain(c[3])]
     print('\nof the unlisted changes, %d were landscape blocks' % len(terrain))
 
