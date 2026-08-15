@@ -92,3 +92,22 @@ together off to one side of the map.
 The shrine datapack tags a marker entity at each shrine. Those markers live in the map's entity
 regions, not in anything this project produced, so they can always be read back — which matters,
 because a scan artefact can be lost while the map cannot. 137 exteriors and 136 interiors.
+
+## What does not work: applying by commands
+
+`commands.py` turns a deletion list into `fill` and `setblock` commands, so it could be applied
+through a datapack — text, which is all some hosting panels can write. It compresses well: one
+`fill ... replace` per structure per material, splitting the box until it holds nothing but the
+structure's own blocks, took 84,174 positions down to 3,327 commands.
+
+It was then tried on a copy of the map, and it should not be used. Of the 84,174 listed blocks, 631
+were cleared. 847 turned into something other than air. And 12 blocks were destroyed that were on no
+list.
+
+Two separate reasons, both fundamental. Commands fail silently in a function when the chunk they
+name is not loaded, and a whole-map list reaches chunks nobody is standing in. And `fill` and
+`setblock` run the game's block updates: fences and stairs reconnect, light and fluids move, and
+things fall. The mod writes with `FORCE_STATE` and no propagation, which is the whole reason it
+exists.
+
+The tool is kept because the measurement is worth keeping, not because the route is usable.
