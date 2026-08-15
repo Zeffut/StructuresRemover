@@ -137,10 +137,12 @@ final class BulkPurge {
 
 	private static void run(MinecraftServer server, Path file) throws Exception {
 		boolean dryRun = Boolean.getBoolean("structuresremover.purge.dry");
-		PurgeJob job = PurgeJob.read(server.getOverworld(), file, dryRun);
+		boolean allowTerrain = Boolean.getBoolean("structuresremover.purge.terrain");
+		PurgeJob job = PurgeJob.read(server.getOverworld(), file, dryRun, allowTerrain);
 
-		StructuresRemover.LOGGER.info("[purge] {} blocks listed across {} chunks{}",
-				job.listed(), job.chunkCount(), dryRun ? " (dry run)" : "");
+		StructuresRemover.LOGGER.info("[purge] {} blocks listed across {} chunks{}{}",
+				job.listed(), job.chunkCount(), dryRun ? " (dry run)" : "",
+				allowTerrain ? " (landscape blocks may be deleted)" : "");
 
 		// Handed to the tick loop rather than run here and now. Running it in one go was the
 		// original design and it exhausted the heap on a whole-map list: the server only unloads

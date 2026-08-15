@@ -42,6 +42,7 @@ loom {
 			name = "Bulk purge"
 			property "structuresremover.purge", System.getProperty("srpurge", "")
 			property "structuresremover.purge.dry", System.getProperty("srdry", "false")
+			property "structuresremover.purge.terrain", System.getProperty("srterrain", "false")
 			vmArg "-Xmx4G"
 		}
 		trial {

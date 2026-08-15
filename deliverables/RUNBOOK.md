@@ -58,14 +58,14 @@ mistake: the server silently generates a brand new empty world and cleans nothin
 
 ## Step 3 — get the list
 
-    curl -L -o all_purge_clean.txt.gz https://raw.githubusercontent.com/Zeffut/StructuresRemover/claude/structure-selection-deletion-mod-js5d55/deliverables/all_purge_clean.txt.gz
-    gunzip all_purge_clean.txt.gz
-    wc -l all_purge_clean.txt  # expect 1104511
-    head -1 all_purge_clean.txt      # expect four fields: x y z minecraft:<block>
+    curl -L -o verify_all.txt.gz https://raw.githubusercontent.com/Zeffut/StructuresRemover/claude/structure-selection-deletion-mod-js5d55/deliverables/verify_all.txt.gz
+    gunzip verify_all.txt.gz
+    wc -l verify_all.txt  # expect 1613981
+    head -1 verify_all.txt      # expect four fields: x y z minecraft:<block>
 
 ## Step 4 — dry run first
 
-    java -Xmx4G -Dstructuresremover.purge="$PWD/all_purge_clean.txt" \
+    java -Xmx4G -Dstructuresremover.purge="$PWD/verify_all.txt" \
          -Dstructuresremover.purge.dry=true \
          -jar fabric-server-launch.jar nogui
 
@@ -73,14 +73,14 @@ Use an **absolute** path for the list; the server resolves relative paths agains
 
 It runs every check, writes nothing, then stops on its own. Read the tally in `logs/latest.log`:
 
-    [purge] 1104511 blocks listed across 12662 chunks (dry run)
-    [purge] cleared N blocks of 1104511 listed
+    [purge] 1613981 blocks listed across 24555 chunks (dry run)
+    [purge] cleared N blocks of 1613981 listed
     [purge] refused because the block was landscape: 0
     [purge] cleared under a different name than listed: N
 
 **Do not go on unless these hold:**
 
-- *cleared* is close to 1,104,511. A number near zero means the server is not looking at the right
+- *cleared* is close to 1,607,334 — the list minus the creature bodies, which step 5b covers. A number near zero means the server is not looking at the right
   world — check `level-name` against the copy's directory name.
 - *refused because the block was landscape* is **0**. This counts blocks the list named that turned
   out to be terrain; they are never deleted whatever the list says. Anything other than zero means
@@ -94,7 +94,7 @@ It runs every check, writes nothing, then stops on its own. Read the tally in `l
 
 Same command without the dry-run flag:
 
-    java -Xmx4G -Dstructuresremover.purge="$PWD/all_purge_clean.txt" \
+    java -Xmx4G -Dstructuresremover.purge="$PWD/verify_all.txt" \
          -jar fabric-server-launch.jar nogui
 
 It reports progress every 2,000 chunks and stops by itself when finished. Expect a few minutes.
@@ -106,6 +106,19 @@ position already cleared is simply counted as refused the second time round, whi
 of a resumed run meaningless while leaving the result correct. When resuming, trust step 6, not the
 tally.
 
+## Step 5b — the creatures, which are made of landscape
+
+The map's stone and ice creatures are built out of ice, stone, cobblestone and andesite. The purge
+refuses those by default — that refusal is what keeps the ground intact — so their bodies come as a
+separate list and the run has to be told, in as many words, that it may delete landscape:
+
+    java -Xmx4G -Dstructuresremover.purge="$PWD/creature_bodies.txt" \
+         -Dstructuresremover.purge.terrain=true \
+         -jar fabric-server-launch.jar nogui
+
+Expect `cleared 6647 blocks of 6647 listed` and a warning line saying the run was allowed to delete
+landscape blocks. Run it after step 5, on the same copy.
+
 ## Step 6 — check the result
 
 The tally says what the server thinks it did. This says what actually changed:
@@ -113,16 +126,21 @@ The tally says what the server thinks it did. This says what actually changed:
     git clone https://github.com/Zeffut/StructuresRemover
     cd StructuresRemover/tools
     pip install numpy scipy
-    python3 verify_purge.py /path/to/all_purge_clean.txt 4 /path/to/server/cleanmap/region
+    python3 verify_purge.py /path/to/verify_all.txt 4 /path/to/server/cleanmap/region /path/to/creature_bodies.txt
+
+The last argument names the positions where deleting a landscape block was deliberate. Without it
+every creature body reads as the failure this tool exists to catch, and a real one would be lost
+among them.
 
 It reads both the original world and the cleaned one back from disk, finds **every** difference
 between them, and only then compares against the list. Expect:
 
-    1104511 of 1104511 listed blocks are now air
+    1613981 of 1613981 listed blocks are now air
     0 of those were landscape blocks and should have been refused
+    6647 landscape blocks were deleted where that was asked for
     0 listed blocks changed into something other than air
     0 blocks were destroyed that were not on the list
-    88 blocks appeared where there was air
+    66 blocks appeared where there was air
     of the blocks destroyed off the list, 0 were landscape
 
 `verify_purge.py` reads its "before" from `ORIGINAL` at the top of the file — point that at the
@@ -142,8 +160,8 @@ was only ever a tool for this one pass.
 If the server is already up and the map is loaded, an operator can do the same thing from the
 console without restarting:
 
-    /sr purgedry /full/path/to/all_purge_clean.txt
-    /sr purge /full/path/to/all_purge_clean.txt
+    /sr purgedry /full/path/to/verify_all.txt
+    /sr purge /full/path/to/verify_all.txt
     /sr purge stop
 
 The work is spread over ticks so the server stays playable. Progress and the same tally go to the

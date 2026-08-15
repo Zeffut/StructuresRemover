@@ -47,6 +47,15 @@ public final class PurgeJob {
 
 	private final ServerWorld world;
 	private final boolean dryRun;
+
+	/**
+	 * Whether this run may delete landscape blocks.
+	 *
+	 * <p>Off unless asked for, and the asking is the point. The refusal to touch stone, ice and snow
+	 * is what has kept this map's ground intact, and it is not something to relax quietly. The map's
+	 * stone and ice creatures are built out of those blocks, so removing them means saying so.
+	 */
+	private final boolean allowTerrain;
 	private final Map<Long, List<int[]>> byChunk;
 	private final List<String> names;
 	private final Iterator<Map.Entry<Long, List<int[]>>> remaining;
@@ -63,10 +72,11 @@ public final class PurgeJob {
 	private long renamed;
 	private int chunksDone;
 
-	private PurgeJob(ServerWorld world, boolean dryRun, Map<Long, List<int[]>> byChunk,
-			List<String> names, long listed) {
+	private PurgeJob(ServerWorld world, boolean dryRun, boolean allowTerrain,
+			Map<Long, List<int[]>> byChunk, List<String> names, long listed) {
 		this.world = world;
 		this.dryRun = dryRun;
+		this.allowTerrain = allowTerrain;
 		this.byChunk = byChunk;
 		this.names = names;
 		this.remaining = byChunk.entrySet().iterator();
@@ -84,6 +94,12 @@ public final class PurgeJob {
 	 * list, so they are kept once in a table and referred to by number.
 	 */
 	public static PurgeJob read(ServerWorld world, Path file, boolean dryRun) throws Exception {
+		return read(world, file, dryRun, false);
+	}
+
+	/** As above, but able to delete landscape blocks when the caller insists. */
+	public static PurgeJob read(ServerWorld world, Path file, boolean dryRun, boolean allowTerrain)
+			throws Exception {
 		Map<Long, List<int[]>> byChunk = new TreeMap<>();
 		Map<String, Integer> ids = new HashMap<>();
 		List<String> names = new ArrayList<>();
@@ -116,7 +132,7 @@ public final class PurgeJob {
 			}
 		}
 
-		return new PurgeJob(world, dryRun, byChunk, names, listed);
+		return new PurgeJob(world, dryRun, allowTerrain, byChunk, names, listed);
 	}
 
 	public long listed() {
@@ -222,7 +238,7 @@ public final class PurgeJob {
 			cursor.set(entry[0], entry[1], entry[2]);
 			BlockState present = world.getBlockState(cursor);
 
-			if (BulkPurge.isTerrain(present.getBlock())) {
+			if (!allowTerrain && BulkPurge.isTerrain(present.getBlock())) {
 				// Named, not just counted. A refusal means the list and the world disagree about
 				// what is standing somewhere, and the only useful form of that news is which block.
 				refusals.merge(names.get(entry[3]) + " is now "
@@ -256,6 +272,10 @@ public final class PurgeJob {
 	public void report() {
 		StructuresRemover.LOGGER.info("[purge] ==========================================");
 		StructuresRemover.LOGGER.info("[purge] cleared {} blocks of {} listed", cleared, listed);
+
+		if (allowTerrain) {
+			StructuresRemover.LOGGER.warn("[purge] this run was allowed to delete landscape blocks");
+		}
 		StructuresRemover.LOGGER.info("[purge] refused because the block was landscape: {}", refusedTerrain);
 
 		for (Map.Entry<String, Integer> entry : refusals.entrySet()) {

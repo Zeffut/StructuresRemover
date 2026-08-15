@@ -140,6 +140,22 @@ def main():
     if len(sys.argv) > 3:
         PURGED = sys.argv[3]
 
+    # Positions where deleting a landscape block was deliberate. The map's stone and ice creatures
+    # are built out of landscape blocks, so removing them means saying which ones in advance —
+    # otherwise every one of them reads here as the failure this tool exists to catch, and the real
+    # thing would be lost among them.
+    allowed = set()
+
+    if len(sys.argv) > 4:
+        with open(sys.argv[4]) as fh:
+            for line in fh:
+                parts = line.split()
+
+                if len(parts) >= 3:
+                    allowed.add((int(parts[0]), int(parts[1]), int(parts[2])))
+
+        print('%d positions allowed to be landscape' % len(allowed))
+
     listed = {}
 
     with open(listing) as fh:
@@ -175,7 +191,7 @@ def main():
                     if new == 'minecraft:air':
                         cleared += 1
 
-                        if discover.is_terrain(old):
+                        if discover.is_terrain(old) and (x, y, z) not in allowed:
                             # The one failure the unlisted-changes check below cannot see. A listed
                             # position holding a landscape block should have been refused at write
                             # time; if it was cleared anyway it counts as cleared and nothing else
@@ -202,6 +218,9 @@ def main():
 
     print('\n%d of %d listed blocks are now air' % (cleared, len(listed)))
     print('%d of those were landscape blocks and should have been refused' % len(listed_terrain))
+
+    if allowed:
+        print('%d landscape blocks were deleted where that was asked for' % len(allowed))
 
     for x, y, z, old in listed_terrain[:10]:
         print('  %d %d %d  %s was deleted' % (x, y, z, old))
