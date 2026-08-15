@@ -25,6 +25,24 @@ import discover
 MIN_MEMBERS = 8
 MIN_BLOCKS = 60
 
+# Families the map's owner looked at and asked to keep.
+#
+# The point of the family search is to find what repeats; it cannot tell repeated filler from
+# repeated scenery someone placed on purpose. That call is the owner's, and once made it belongs
+# here rather than in a list that gets regenerated — a decision that has to be remembered by hand is
+# a decision that gets forgotten.
+#
+# The honey block trees are the case that proves it: 559 of them, 147,247 blocks, a fifth of
+# everything the list touched on the playable map, and they are deliberate decor.
+KEEP = (
+    {'minecraft:honey_block', 'minecraft:honeycomb_block'},
+)
+
+
+def is_kept(materials):
+    """True when a family matches something the owner asked to keep."""
+    return any(rule <= set(materials) for rule in KEEP)
+
 # How much the members of a family are allowed to differ in size. A repeated structure is not
 # identical here — the shrines vary by a few blocks each — but it does not vary by a factor of ten.
 SPREAD = 2.5
@@ -58,6 +76,9 @@ def families(clumps, min_members=MIN_MEMBERS, min_blocks=MIN_BLOCKS, spread=SPRE
 
         # One outlier the size of a castle means the group is a material, not a family.
         if sizes[-1] > sizes[len(sizes) // 2] * spread * 2:
+            continue
+
+        if is_kept(key):
             continue
 
         out.append({'materials': key, 'members': members, 'count': len(members),

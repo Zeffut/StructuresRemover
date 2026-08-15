@@ -66,6 +66,13 @@ def main():
                         families.families([clump(30, WOOD, (i * 100, 64, 0)) for i in range(50)],
                                           min_members=8, min_blocks=60) == []))
 
+    # A family the owner asked to keep never reaches the list, however well it repeats. The honey
+    # block trees repeat 559 times and are deliberate decor.
+    bees = [clump(250, ('minecraft:honey_block', 'minecraft:honeycomb_block',
+                        'minecraft:acacia_fence'), (i * 100, 64, 0)) for i in range(30)]
+    passed.append(check('a family the owner asked to keep is not offered for deletion',
+                        families.families(bees, min_members=8, min_blocks=60) == []))
+
     # Real shrines vary by a few blocks each and must still group; this is the case that exact
     # fingerprinting failed on, giving 122 answers for 137 shrines.
     shrines = [clump(size, ('minecraft:gray_concrete', 'minecraft:light_blue_glazed_terracotta',
