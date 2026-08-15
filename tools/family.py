@@ -32,7 +32,7 @@ import discover
 import nbt
 import survey
 
-OUT = 'family.pickle'
+OUT = os.environ.get('SR_FAMILY', 'family.pickle')
 
 # Blocks that, on this map, mean "shrine" and nothing else.
 #
@@ -66,7 +66,7 @@ MAX_STRUCTURE = 3000
 
 # How far out to look for stray distinctive blocks once a structure is settled.
 SWEEP = 20
-CORES = 'cores.pickle'
+CORES = os.environ.get('SR_CORES', 'cores.pickle')
 
 
 def palette_blocks(path, names, chunk_filter=None):

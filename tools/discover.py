@@ -32,7 +32,9 @@ except ImportError:  # The scan still works without them, just far slower.
     _np = None
     _label = None
 
-REGION_DIR = 'extracted/botwproject/region'
+# Which map to read. Set SR_REGION_DIR to work on a different one — the server's own world is not
+# the same as the archive this started from, and a list built from one does not fit the other.
+REGION_DIR = os.environ.get('SR_REGION_DIR', 'extracted/botwproject/region')
 
 # Anything that occurs as landscape. Deleting one of these is exactly what must never happen, so the
 # list is deliberately generous: a structure block wrongly listed here merely survives, while a
@@ -221,6 +223,49 @@ def _unpack(data, names, bits, per_long, mask, base_y):
 
     for i, entry in zip(keep.tolist(), chosen):
         yield i & 15, base_y + (i >> 8), (i >> 4) & 15, names[entry][1]
+
+
+def all_section_blocks(section):
+    """Yields (x, y, z, name) for every block of a section, terrain included.
+
+    The scan proper never wants this — leaving terrain out is what keeps the ground safe. Looking at
+    a place with the terrain left in is a separate job, for telling a creature built of stone apart
+    from the hill it stands on.
+    """
+    states = section.get('block_states')
+
+    if not states:
+        return
+
+    palette = states.get('palette') or []
+
+    if not palette:
+        return
+
+    names = []
+
+    for entry in palette:
+        name = entry.get('Name', 'minecraft:air')
+        props = entry.get('Properties')
+        names.append('%s[%s]' % (name, ','.join('%s=%s' % (k, props[k]) for k in sorted(props)))
+                     if props else name)
+
+    data = states.get('data')
+
+    if len(palette) == 1 or not data:
+        for i in range(4096):
+            yield i & 15, i >> 8, (i >> 4) & 15, names[0]
+
+        return
+
+    bits = max(4, (len(palette) - 1).bit_length())
+    per_long = 64 // bits
+    mask = (1 << bits) - 1
+
+    for i in range(4096):
+        value = data[i // per_long]
+        entry = (value >> ((i % per_long) * bits)) & mask
+        yield i & 15, i >> 8, (i >> 4) & 15, names[entry] if entry < len(names) else names[0]
 
 
 def collect(path, chunk_filter=None):
@@ -467,7 +512,7 @@ def scan_region(args):
     return path, found
 
 
-STATE = 'structures.pickle'
+STATE = os.environ.get('SR_STATE', 'structures.pickle')
 
 
 def regions_of(entry):
