@@ -1,21 +1,49 @@
 # Opening a way in — instructions for an agent with access to the VPS
 
-The cleaned map lives on the machine that produced it, and that machine cannot reach out. Its
-network policy does not merely close ports, it inspects protocols: only HTTP and TLS leave it. That
-was measured, not assumed —
+## Read this first: you are probably not the machine this is about
 
-| test | result |
+Three machines are involved and confusing two of them wastes a lot of work.
+
+| | |
 |---|---|
-| port 22 outbound, to any host at all | blocked |
-| SSH on port 443, against GitHub's own sshd at `ssh.github.com:443` | fails, banner never arrives |
+| **the sandbox** | a remote container, hostname `vm`, where the map was cleaned. Ephemeral. Egress restricted. |
+| **the workstation** | the owner's PC. Ordinary internet access, OpenSSH client, and its own copy of the map. |
+| **the VPS** | `72.60.94.131`, Debian, nginx on port 80. |
+
+The table below was measured **in the sandbox and nowhere else**. It says nothing about the
+workstation, and if you run it from the workstation you will get the opposite answer on every line
+— that is expected, not a contradiction. The workstation reaches `72.60.94.131:22` and gets an
+OpenSSH banner straight back.
+
+| test, run in the sandbox | result |
+|---|---|
+| TCP to `github.com:22` | no connection, times out |
+| TCP to `72.60.94.131:22` | no connection, times out |
+| SSH banner from `ssh.github.com:443` | never arrives |
 | non-HTTP bytes on port 80 to the VPS | answered `400 Bad Request` by an intermediary |
 | HTTP to the VPS | works — nginx answers |
 | `PUT` and `POST` against that nginx | 404 and 405 |
 
-So root credentials for the VPS are of no use from there: no SSH session can leave. HTTP can. Your
-job is to put something on the VPS that accepts a file over HTTP, so the map can be pushed to it.
+So root credentials for the VPS are of no use **from the sandbox**: no SSH session leaves it. HTTP
+does.
 
-Nothing here needs to reach into the other machine. It only needs to listen.
+## And read this second: this is very likely unnecessary
+
+This document exists for one narrow case — moving the sandbox's copy of the cleaned map out before
+the container is reclaimed. It is worth doing only if that copy is the one that is wanted.
+
+It usually is not. The workstation has an OpenSSH client and direct SSH to the VPS, so anything it
+holds it can send itself, encrypted and authenticated, with `sftp` and `reput` to resume. And the
+deletion list reproduces the cleaned map exactly from the original, which is the whole reason the
+list is the deliverable rather than the map.
+
+**Do not stand this up before checking whether the map already exists where it is needed.**
+`tools/spotcheck.py` answers that without moving anything: run it against the copy in question and
+against the untouched original, and compare. If the copy is already clean, nothing needs to travel
+and none of the rest of this applies.
+
+If you do proceed: your job is to put something on the VPS that accepts a file over HTTP. Nothing
+here needs to reach into the sandbox. It only needs to listen.
 
 ## What has to be true when you are done
 
@@ -48,12 +76,21 @@ Generate a token first. Do not reuse one that has been through a chat window:
 
 Write the receiver, substituting the token you just generated:
 
-    mkdir -p /root/hyrule
-    cat > /root/recv.py <<'PY'
-    import http.server, os
+    install -d -m 750 -o www-data -g www-data /srv/hyrule
+    cat > /usr/local/bin/recv.py <<'PY'
+    import http.server, os, re, shutil, urllib.parse
 
     TOKEN = "PUT-THE-GENERATED-TOKEN-HERE"
-    DEST = "/root/hyrule"
+    DEST = "/srv/hyrule"
+    MAX_PART = 256 << 20          # no part is 200 MB by accident; anything larger is not ours
+    KEEP_FREE = 1 << 30           # stop before filling the disk out from under the machine
+
+    # Names are matched, not sanitised. Everything sent is `hyrule.tar.gz.part-NNN` or `SHA256SUMS`,
+    # so the whole question of traversal, encoding and query strings goes away: what does not match
+    # is refused. Sanitising invites an argument about whether the sanitising is complete —
+    # `self.path` is not URL-decoded by BaseHTTPRequestHandler, so a `%2F` or a `?x=1` arrives
+    # verbatim and lands in the filename.
+    ALLOWED = re.compile(r"\A(hyrule\.tar\.gz\.part-[0-9]{3}|SHA256SUMS)\Z")
 
     class H(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -69,14 +106,20 @@ Write the receiver, substituting the token you just generated:
             if self.headers.get("X-Token") != TOKEN:
                 return self._reply(403)
 
-            name = os.path.basename(self.path)
+            path = urllib.parse.urlsplit(self.path).path
+            name = urllib.parse.unquote(path).lstrip("/")
 
-            # basename() is what keeps the write inside DEST: `PUT /../x` arrives as `x`. What it
-            # cannot handle is a path that ends in a dot segment, so those are refused by name.
-            if not name or name in (".", ".."):
-                return self._reply(400)
+            if not ALLOWED.match(name):
+                return self._reply(400, b"unexpected name\n")
 
             left = int(self.headers.get("Content-Length", 0))
+
+            if left <= 0 or left > MAX_PART:
+                return self._reply(413, b"bad size\n")
+
+            if shutil.disk_usage(DEST).free - left < KEEP_FREE:
+                return self._reply(507, b"not enough room\n")
+
             written = 0
 
             with open(os.path.join(DEST, name), "wb") as out:
@@ -97,17 +140,25 @@ Write the receiver, substituting the token you just generated:
         def log_message(self, *args):
             pass
 
-    http.server.ThreadingHTTPServer(("", 80), H).serve_forever()
+    http.server.ThreadingHTTPServer(("127.0.0.1", 8080), H).serve_forever()
     PY
 
-**Route A — nginx is not serving anything that matters.** Stop it and let the receiver have the
-port:
+Run it as a service, unprivileged. It binds loopback on 8080, so it needs neither root nor a
+privileged port, and it cannot be reached from outside except through nginx:
 
-    systemctl stop nginx
-    nohup python3 /root/recv.py > /root/recv.log 2>&1 &
+    cat > /etc/systemd/system/recv.service <<'UNIT'
+    [Service]
+    ExecStart=/usr/bin/python3 /usr/local/bin/recv.py
+    User=www-data
+    Group=www-data
+    ProtectSystem=strict
+    ReadWritePaths=/srv/hyrule
+    PrivateTmp=true
+    NoNewPrivileges=true
+    UNIT
+    systemctl daemon-reload && systemctl start recv
 
-**Route B — nginx is serving a real site.** Leave it up and put the receiver behind it. Change the
-last line of `recv.py` to bind `127.0.0.1` on port 8080, then add to the server block:
+nginx stays up and serves whatever it was serving. Add one location to the server block:
 
     location /upload/ {
         proxy_pass http://127.0.0.1:8080/;
@@ -117,59 +168,74 @@ last line of `recv.py` to bind `127.0.0.1` on port 8080, then add to the server 
         proxy_send_timeout 3600s;
     }
 
-Both of those directives matter. Without `proxy_request_buffering off` nginx writes every upload to
-its own temporary file before passing it on, which doubles the disk needed and the time taken;
-without `client_max_body_size 0` it refuses anything over a megabyte. Then `nginx -t && systemctl
-reload nginx`.
+Both of the first two directives matter. Without `proxy_request_buffering off` nginx writes every
+upload to its own temporary file before passing it on, which doubles the disk needed and the time
+taken; without `client_max_body_size 0` it refuses anything over a megabyte. Then `nginx -t &&
+systemctl reload nginx`.
 
-If you take route B, the upload path is `/upload/<filename>` rather than `/<filename>`. Say which
-route you took — the sending side has to know where to aim.
+**Put it behind TLS if you possibly can.** Over plain HTTP the token and the archive cross the
+internet in the clear, and the token is write access to a public machine. There is no domain and no
+certificate authority in play, so a self-signed certificate on port 443 is what is available:
+
+    openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
+        -keyout /etc/ssl/private/hyrule.key -out /etc/ssl/certs/hyrule.crt \
+        -subj "/CN=72.60.94.131"
+
+listened on with `ssl_certificate`, `ssl_certificate_key` and `listen 443 ssl;`. The sending side
+will connect with certificate verification off, since a self-signed certificate cannot be verified —
+which means this stops someone reading the token off the wire, not someone who can already redirect
+traffic. It is a real improvement over plaintext and not a substitute for the short window.
+
+Say which you ended up with, `http://` or `https://` — the sending side has to know where to aim.
 
 ## Step 3 — prove it works before reporting it works
 
 From the VPS itself:
 
-    head -c 1000000 /dev/urandom > /tmp/probe.bin
-    curl -sS -o /dev/null -w "%{http_code}\n" -T /tmp/probe.bin \
-         -H "X-Token: <the token>" http://127.0.0.1/probe.bin
-    curl -sS -o /dev/null -w "no token -> %{http_code}\n" -T /tmp/probe.bin \
-         http://127.0.0.1/probe.bin
-    cmp /tmp/probe.bin /root/hyrule/probe.bin && echo "byte for byte identical"
+    head -c 1000000 /dev/urandom > /tmp/hyrule.tar.gz.part-999
+    curl -sS -o /dev/null -w "with token   -> %{http_code}\n" -T /tmp/hyrule.tar.gz.part-999 \
+         -H "X-Token: <the token>" http://127.0.0.1/upload/hyrule.tar.gz.part-999
+    curl -sS -o /dev/null -w "no token     -> %{http_code}\n" -T /tmp/hyrule.tar.gz.part-999 \
+         http://127.0.0.1/upload/hyrule.tar.gz.part-999
+    curl -sS -o /dev/null -w "wrong name   -> %{http_code}\n" -T /tmp/hyrule.tar.gz.part-999 \
+         -H "X-Token: <the token>" http://127.0.0.1/upload/../../etc/passwd
+    cmp /tmp/hyrule.tar.gz.part-999 /srv/hyrule/hyrule.tar.gz.part-999 && echo "identical"
 
-Expect `200`, then `no token -> 403`, then the comparison passing. A receiver that answers 200 but
-writes a different file is worse than one that fails, because the failure surfaces hours later at
-the end of a 2.6 GB transfer.
+Expect `200`, `403`, `400`, then the comparison passing. A receiver that answers 200 but writes a
+different file is worse than one that fails, because the failure surfaces hours later at the end of
+a 2.6 GB transfer.
 
-Then from anywhere outside the VPS, to prove the port is actually open to the world and not just to
-localhost:
+Then from a machine that is not the VPS, to prove the port is open to the world and not just to
+localhost — the workstation can do this:
 
-    curl -sS -o /dev/null -w "%{http_code}\n" -T /tmp/probe.bin \
-         -H "X-Token: <the token>" http://72.60.94.131/probe.bin
+    curl -sS -o /dev/null -w "%{http_code}\n" -T /tmp/hyrule.tar.gz.part-999 \
+         -H "X-Token: <the token>" http://72.60.94.131/upload/hyrule.tar.gz.part-999
 
-    rm /root/hyrule/probe.bin
+    rm /srv/hyrule/hyrule.tar.gz.part-999
 
 ## Step 4 — report back
 
 Five things, and the transfer cannot start without all five:
 
 1. The token.
-2. Which route, A or B — that is, whether the path is `/<name>` or `/upload/<name>`.
-3. `df -h /root | tail -1`, so it is known there is room. About 6 GB is wanted.
+2. The full base URL, scheme included — `http://72.60.94.131/upload/` or `https://…`.
+3. `df -h /srv | tail -1`, so it is known there is room. About 3 GB is wanted for the parts, 6 GB
+   if the archive is to be unpacked on the VPS as well.
 4. That the outside test from step 3 returned 200.
-5. Whether nginx was stopped, and whether that matters.
+5. Whether anything on the VPS had to be changed to make room for this, and whether that matters.
 
 ## While the transfer runs
 
 The map goes over as a compressed archive of roughly 2.6 GB, split into 200 MB parts named
-`hyrule.tar.gz.part-aa`, `-ab`, and so on, each sent as its own `PUT`. Split, because a single
+`hyrule.tar.gz.part-000`, `-001`, and so on, each sent as its own `PUT`. Split, because a single
 2.6 GB request that breaks in the middle costs the whole transfer, while one part that breaks costs
-one part. Nothing needs doing during it. `ls -la /root/hyrule/` shows the parts arriving.
+one part. Nothing needs doing during it. `ls -la /srv/hyrule/` shows the parts arriving.
 
 A `SHA256SUMS` file is sent last, listing every part.
 
 ## When the parts have all arrived
 
-    cd /root/hyrule
+    cd /srv/hyrule
     sha256sum -c SHA256SUMS
     cat hyrule.tar.gz.part-* > hyrule.tar.gz
     tar tzf hyrule.tar.gz | head
@@ -185,18 +251,42 @@ gzip stream fails there rather than at extraction time, when it has already writ
 The endpoint is a hole in a public-facing machine, held shut by a single token. It should exist for
 the length of the transfer and no longer:
 
-    pkill -f recv.py
-    rm /root/recv.py
-    systemctl start nginx        # route A
-                                 # route B: drop the location block, nginx -t && systemctl reload nginx
+    systemctl stop recv && systemctl disable recv
+    rm /etc/systemd/system/recv.service /usr/local/bin/recv.py && systemctl daemon-reload
+    # drop the location block, then: nginx -t && systemctl reload nginx
 
-And change the VPS root password. It was sent through a chat window to arrange this.
+The VPS root password is a separate matter and a more urgent one. It was sent through a chat window
+to arrange this, which means it is exposed **now**, not once the transfer finishes. Change it before
+anything else here, and prefer a key pair afterwards so no password needs sending again.
 
-## This was tested, not just written
+## What was tested, and what was not
 
-The receiver above was extracted from this document verbatim, run, and exercised: a 3 MB `PUT` with
-the token returned 200 and landed byte for byte identical; without the token, and with a wrong one,
-403; `PUT /../escaped.bin` was written inside the destination directory rather than above it.
+Both receivers were extracted from this document verbatim and run.
+
+The first draft named its file with `os.path.basename(self.path)`. It survived a 3 MB round trip
+byte for byte, refused a missing and a wrong token with 403, and kept `PUT /../escaped.bin` inside
+the destination directory. That test is narrower than it sounds, though: `BaseHTTPRequestHandler`
+does not decode `self.path`, so `%2F` and a trailing query string arrive verbatim and land in the
+filename — `PUT /part-000?x=1` created a file called `part-000?x=1`. Not an escape, but not covered
+by what was tested either.
+
+The receiver above matches the name against a pattern instead of sanitising it, which removes the
+question rather than answering it. Exercised the same way:
+
+| | |
+|---|---|
+| `PUT /hyrule.tar.gz.part-007` with the token | 200, byte for byte identical |
+| `PUT /SHA256SUMS` with the token | 200 |
+| the same, no token | 403 |
+| the same, wrong token | 403 |
+| `PUT /hyrule.tar.gz.part-007?x=1` | 200, written as `hyrule.tar.gz.part-007` |
+| `PUT /..%2F..%2Fescaped.bin` | 400 |
+| `PUT /../../etc/passwd` | 400 |
+| `PUT /whatever.bin` | 400 |
+| 300 MB body | 413, nothing written |
+
+Run step 3 anyway and believe that, not this table. It was measured on a different machine, with a
+different Python, and behind no nginx.
 
 ## One thing not to bother with
 
