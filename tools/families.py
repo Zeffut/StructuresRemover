@@ -38,10 +38,15 @@ MIN_BLOCKS = 60
 # attempt asked for honey block and honeycomb block together and never matched anything: a clump is
 # summarised by its three commonest materials, and in these trees honey comes fifth and honeycomb
 # seventh. The family that actually holds them is summarised as acacia fence and orange carpet.
+# The copper machines are the second case. They look like a family — one build standing several
+# times over — but they are the machines of the map's four peoples, and each one is meant to be
+# there. They cannot reach MIN_MEMBERS on their own, so nothing has ever listed them; the rule is
+# written down anyway, because "too few to count as a family" is a threshold and thresholds move.
 KEEP = (
     {'minecraft:honey_block'},
     {'minecraft:honeycomb_block'},
     {'minecraft:acacia_fence', 'minecraft:orange_carpet'},
+    {'minecraft:gray_concrete', 'minecraft:waxed_copper_block'},
 )
 
 

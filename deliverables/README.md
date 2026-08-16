@@ -97,6 +97,12 @@ walked out of the creature and into the hillside, and the right answer there is 
 The honey block trees are deliberately **not** in the list: 630 of them, 164,724 blocks, kept at the
 owner's request.
 
+Neither are the copper machines — the machines of the map's four peoples, gray concrete and waxed
+copper block. They repeat, but each one is meant to stand. Nothing ever listed them, because four
+copies cannot reach the eight a family needs; the rule is written down in `tools/families.py`
+anyway, since "too few to count" is a threshold and thresholds move. Three of them are still
+standing on the server's map, at `10129 475 5174`, `-335 311 90` and `5862 498 2965`.
+
 The families were worked out from the map itself rather than given: village houses out in the
 wilderness, gerudo tents, Sheikah towers, stables, shrines. `tools/README.md` covers how, and how it
 was checked.
