@@ -128,25 +128,29 @@ Use an **absolute** path for the list; the server resolves relative paths agains
 It runs every check, writes nothing, then stops on its own. Read the tally in `logs/latest.log`:
 
     [purge] 1685107 blocks listed across N chunks (dry run)
-    [purge] cleared N blocks of 1685107 listed
-    [purge] refused because the block was landscape: N
+    [purge] cleared 1678876 blocks of 1685107 listed
+    [purge] refused because the block was landscape: 6231
     [purge] cleared under a different name than listed: N
 
 **Do not go on unless these hold:**
 
-- *cleared* is within a few thousand of 1,685,107. A number near zero means the server is not
+- *cleared* is exactly **1,678,876** and *refused because the block was landscape* is exactly
+  **6,231**. The two sum to the 1,685,107 listed. A *cleared* near zero means the server is not
   looking at the right world — check `level-name` against the copy's directory name.
-- *refused because the block was landscape* is **0**, or else equal to the 6,231 creature-body
-  positions that step 5b covers. This line counts blocks the list named that turned out to be
-  terrain; they are never deleted whatever the list says. Any other number means the list does not
-  match this map, and it should be reported rather than worked around.
 
-  One caveat, stated because it was not re-derived rather than because it is doubtful: for the
-  first-pass list the two numbers came out exactly — 1,538,786 listed, 6,231 bodies, 1,532,555
-  cleared, 0 refused, so the bodies sat inside the main list and were refused there. Whether that
-  still holds for `server_verify2.txt` was not checked. If the refusal count comes out at 6,231
-  rather than 0, that is this same arrangement and not a fault; anything that is neither 0 nor
-  6,231 is.
+  Those 6,231 are the creature bodies, which step 5b covers. They sit inside the main list and are
+  refused there, because they are made of `stone`, `cobblestone`, `andesite`, `blue_ice` and
+  `packed_ice` — landscape by both writings of the rule, the Python one in `discover.py` and the
+  Java one in `BulkPurge.isTerrain`. Checked: the two lists intersect in 6,231 positions and no
+  others, they disagree on no block name, and all five materials are terrain under both rules.
+
+  This is a better check than a `0` would be, because it has a non-trivial expected value — an
+  empty world reports zero refusals too, while 6,231 is a number only the right map produces. Read
+  it together with step 3b, though. What decides a refusal is the block standing in the world, not
+  the name written in the list, so 6,231 is the count only where `fits.py` returned 100%. If it
+  returned less, the refusals rise by the same amount, and **the excess over 6,231 is the number of
+  positions where the list and the world disagree**. Below 6,231 means the bodies are already gone,
+  which on a fresh copy means it is not fresh.
 - *cleared under a different name than listed* may be a few thousand. That is expected and not a
   problem: a world upgraded to 1.21.11 has had `minecraft:chain` renamed to `minecraft:iron_chain`
   under it. Those blocks are still deleted, and counted separately so the difference is visible
