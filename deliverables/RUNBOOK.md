@@ -106,16 +106,34 @@ there. This is what happened with an earlier list here — 66,825 positions hold
 only came out once the purge was already running.
 
     cd StructuresRemover/tools
-    SR_REGION_DIR=/path/to/work/cleanmap/region python3 fits.py /path/to/server_verify2.txt 4
+    SR_REGION_DIR=/path/to/work/cleanmap/region \
+        python3 fits.py /path/to/server_verify2.txt 4 /path/to/server_bodies.txt
 
-Expect **1685107 of 1685107 (100.0%)**. Anything below about 99.9% means this list was built from a
-different world, and it must be rebuilt rather than forced.
+**Name the body list as the third argument, and do not read the percentage.** 6,231 of the listed
+positions are creature bodies and are landscape on purpose; without being told so, `fits.py` counts
+them as disagreements, exceeds its own 0.1% threshold, and reports that the list does not describe
+the map — against the map it does describe. A check that condemns the correct case gets ignored, so
+it is worth understanding rather than working around.
+
+| line | expected | what a departure means |
+|---|---|---|
+| `hold landscape where landscape was expected` | **6231** | fewer means the bodies are already gone: this copy is not fresh |
+| `hold a different built block` | **0** | this is the drift meter |
+| `hold a landscape block` | **0** | landscape where none was declared: wrong base |
+| `are in a region that is not there` | **0** | missing regions |
+| the percentage | **99.63%** | never 100%, and that is correct |
+
+The drift meter is the second line, not the percentage. Renames inflate it without meaning
+anything — the same list against a 1.21.8 copy of the archive showed 110 differences of which 106
+were `chain` where the upgraded list says `iron_chain` — so read what the differing blocks are
+before concluding from the count.
 
 This step is the one that catches a wrong base, and it is cheap. It is worth knowing what its
 failure looks like from both sides, because the two maps in play here differ asymmetrically: the
 first-pass list built on the **archive** put 66,825 positions on landscape when tried against the
-**server**, while a list built on the **server** sampled against the **archive** disagreed nowhere
-in 20,000 draws. Whichever direction you are going, run `fits.py` before the purge, not after.
+**server**, while the current list built on the **server**, run in full against the **archive**,
+differed at four positions out of 1,685,107. Whichever direction you are going, run `fits.py`
+before the purge, not after.
 
 ## Step 4 — dry run first
 
@@ -147,8 +165,8 @@ It runs every check, writes nothing, then stops on its own. Read the tally in `l
   This is a better check than a `0` would be, because it has a non-trivial expected value — an
   empty world reports zero refusals too, while 6,231 is a number only the right map produces. Read
   it together with step 3b, though. What decides a refusal is the block standing in the world, not
-  the name written in the list, so 6,231 is the count only where `fits.py` returned 100%. If it
-  returned less, the refusals rise by the same amount, and **the excess over 6,231 is the number of
+  the name written in the list, so 6,231 is the count only where `fits.py` agreed. If it found
+  disagreements, the refusals rise by the same amount, and **the excess over 6,231 is the number of
   positions where the list and the world disagree**. Below 6,231 means the bodies are already gone,
   which on a fresh copy means it is not fresh.
 - *cleared under a different name than listed* may be a few thousand. That is expected and not a
