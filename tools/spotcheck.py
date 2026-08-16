@@ -23,7 +23,7 @@ import sys
 from collections import Counter, defaultdict
 from multiprocessing import Pool
 
-sys.path.insert(0, '/home/user/botw')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discover
 import nbt
 import survey
