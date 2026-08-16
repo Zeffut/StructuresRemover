@@ -38,10 +38,14 @@ Read the lines, not the percentage:
 | line | expected | what a departure means |
 |---|---|---|
 | `hold landscape where landscape was expected` | **6,231** | fewer means the bodies are already gone, so the copy is not fresh |
-| `hold a different built block` | **≈ 0** | this is the drift meter — somebody built or broke something |
-| `hold a landscape block` | **0** | landscape where none was declared: wrong base |
+| `hold a different built block` | **0** | something else is standing where the list names a block. This is the one that says *wrong map* |
+| `hold a landscape block` | **0** on the map it was built from | the listed block is gone — removed, or replaced by ground. This is *removal since*, not wrong map |
 | `are in a region that is not there` | **0** | missing regions |
-| the percentage | **99.63%** | never 100%, and that is correct |
+| the percentage | **99.63%** on a fresh copy | never 100%, and that is correct |
+
+The two middle lines are not the same kind of news and the tool currently adds them together. A
+different built block means the list was read from another world. A missing one means somebody took
+that block out of this one. Only the first condemns the list.
 
 Then the work splits in two:
 
@@ -51,6 +55,57 @@ Then the work splits in two:
   be rebuilt. Tens of thousands means the base is wrong in the way an archive-built list is wrong
   against the server. **Do not force a list that does not fit.** The failure this project has hit
   twice is a list applied to a map it was not built from.
+
+### `fits.py` alone cannot make this decision
+
+It only ever visits positions the list already names. So it bounds what has **disappeared** since
+the list was built, and says nothing whatever about what has been **added**. A new copy of a
+targeted structure, put up last night, is invisible to it — and that is precisely the thing a stale
+list gets wrong.
+
+An earlier draft of this document rested the whole apply-or-rebuild choice on this one test. It is
+blind in one direction, so it cannot carry that weight. What answers the other direction is a scan
+of the fresh map:
+
+    SR_REGION_DIR=<fresh>/region SR_STATE=fresh.pickle python3 tools/discover.py
+    SR_STATE=fresh.pickle python3 tools/families.py
+
+and then a comparison of what comes out against the 126 families the list was built from. Same
+families at the same counts means nothing was added and the list is complete. A family that has
+gained members has gained them on the map, and those copies are not in the list.
+
+That scan is most of the cost of a rebuild anyway, so the honest shape of the decision is: run it,
+and rebuild if it disagrees. `fits.py` stays worth running first because it is cheap and it catches
+a wrong base outright, but a clean `fits.py` is a necessary condition, not a sufficient one.
+
+### Measured on backup 18439422, 16 August 13:09
+
+Against the map the server was running twenty hours after the list was built:
+
+| line | value |
+|---|---|
+| `hold landscape where landscape was expected` | 6,231 — the bodies, exactly |
+| `hold a different built block` | **0** |
+| `hold a landscape block` | 7,423 (0.44%) |
+| `are in a region that is not there` | 0 |
+| `chain` among the differences | none, as expected between two upgraded worlds |
+
+Zero built-block disagreements: the list describes this map exactly, wherever its targets are still
+standing. The 7,423 are positions whose block is simply gone. Applying the list there is safe rather
+than wrong — `air` is in `NATURAL_EXACT`, so those positions are refused, not deleted, and the tally
+would read 13,654 refusals instead of 6,231. That gap *is* the drift. The word for applying the list
+unchanged is *insufficient*, not *dangerous*.
+
+`fits.py` still prints "this list does not describe this map", because 7,423 is over its 0.1%
+threshold. That verdict is too blunt for this case and the threshold wants splitting: a **different
+built block** says the map is not the one the list was built from, while a **missing block** says
+somebody removed something. The first should condemn; the second should be counted. Two orders of
+magnitude separate this from the 66,825 a genuinely wrong base produced.
+
+One measurement not yet made: `fits.py` lumps "holds landscape" together with "holds air", because
+`load_blocks` returns only non-terrain and both read as an absence. They mean different things — air
+is a removal, stone is a replacement. `spotcheck.py` has a `full_blocks` reader that sees terrain
+too, which is where to get the distinction from.
 
 For calibration, the same list measured against the **archive** — a different map, and a 1.21.8
 build that was never upgraded — came out at 6,231 expected landscape, 0 unexpected landscape, and
@@ -83,11 +138,17 @@ zero". Anything above it is a bug in the chain, not drift.
 list precisely so that they do:
 
 - the **honey block trees** — 630 of them, 164,724 blocks, deliberate decor, kept at the owner's
-  request;
+  request. Note which rule actually holds them: `families.py` matches on a clump's three commonest
+  materials, and in these trees honey is fifth and honeycomb seventh, so `{honey_block}` and
+  `{honeycomb_block}` do not fire here. `{acacia_fence, orange_carpet}` is the one doing the work.
 - the **copper machines** — `gray_concrete` + `waxed_copper_block`, the machines of the map's four
   peoples. Four copies cannot reach the eight a family needs, so nothing has ever listed them, but
   that is a threshold and thresholds move. Three sites still stand on the server, at
   `10129 475 5174`, `-335 311 90` and `5862 498 2965`.
+
+  This rule has the same two-materials-in-a-top-three shape as the honey rule that never fired, so
+  it was checked rather than assumed: all three sites summarise as `gray_concrete`,
+  `waxed_copper_block`, `jungle_planks`, and `is_kept` returns true for that profile. It fires.
 
 Check both are still in `KEEP` before emitting anything.
 
@@ -121,10 +182,12 @@ into use after that list was written, so nothing in it knows about them.
 
 `RUNBOOK.md` has the full procedure. The three gates, in order, none of them skippable:
 
-1. `fits.py` **before** the purge, read as step 1 sets out: 6,231 expected landscape, 0 unexpected,
-   drift at zero. Not "100%", which no list carrying the bodies can reach.
-2. the dry run reporting `cleared` + `refused` = `listed`, with `refused` equal to the body count —
-   6,231 for the current list, so `cleared` is 1,678,876 of 1,685,107.
+1. `fits.py` **before** the purge, read as step 1 sets out: 6,231 expected landscape, 0 different
+   built blocks. Not "100%", which no list carrying the bodies can reach.
+2. the dry run reporting `cleared` + `refused` = `listed`. On a copy with no drift, `refused` is the
+   6,231 bodies and `cleared` is 1,678,876 of 1,685,107. On a copy that has drifted, `refused` rises
+   by exactly the count step 1 measured — 13,654 for backup 18439422 — because a position whose
+   block is already gone is refused rather than deleted.
 3. `verify_purge.py` afterwards, which reads both copies off disk and finds every difference before
    consulting the list. `0 blocks were destroyed that were not on the list` is the line that
    matters.
@@ -166,10 +229,14 @@ Take a snapshot or note the newest smartbackup id before replacing anything.
   in the archive, three on the server, three removals the owner confirmed. `tools/subset.py` would
   answer the converse, whether the archive holds things the server does not, and has never been run.
 
-- **`fits.py`'s third argument has never been exercised.** The change that added it was written
-  without a shell to test it in. The first run of it is a test of the tool: if the expected-landscape
-  count comes back as anything other than 6,231 for the current pair of lists, suspect the change
-  before suspecting the map.
+- **`fits.py`'s third argument shipped broken, and the fix belongs in this repository.** The first
+  run of it returned 0 expected-landscape instead of 6,231. The cause is a Windows/Linux difference:
+  `EXPECTED_LANDSCAPE` was a module-level global mutated inside `main()`, which forked workers
+  inherit and **spawned** workers do not. The comment justifying it pointed at `REGION_DIR` as
+  precedent, but `REGION_DIR` is read from `os.environ`, and spawn passes the environment — a
+  constant derived from the environment survives, a global mutated at runtime does not. Writing the
+  two as the same mechanism is what hid it. The set has to travel in the work item instead. Anything
+  written here that was never run deserves the same suspicion.
 
 - **`keepout.py` has never been run either**, for the same reason. Its expected output on
   `server_verify2.txt` is 1,685,102 written of 1,685,107 read, with 5 dropped near Tera. Anything
