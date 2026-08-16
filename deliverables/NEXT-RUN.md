@@ -91,6 +91,32 @@ list precisely so that they do:
 
 Check both are still in `KEEP` before emitting anything.
 
+**And run the last filter, whichever branch you took:**
+
+    python3 tools/keepout.py all.txt all_final.txt
+
+The four great fairy fountains came into use after these lists were built and must not be touched:
+Tera `1780 79 6721`, Kaysa `2539 188 4122`, Mija `6891 175 3763`, Cotera `5669 172 5024`. They are
+not protected the way everything else is — `KEEP` in `families.py` matches on materials, and nobody
+has read a fountain's palette. There are four of them, below the eight a family needs, so nothing
+has listed them yet; that is a coincidence about a threshold, not protection, and the copper
+machines are in this repository as the same coincidence written down before it broke.
+
+`keepout.py` drops anything within 40 blocks of those four points. It is subtractive only: it can
+leave a structure standing near a fountain, it cannot delete something that would otherwise have
+survived.
+
+Against the current list it drops **5 positions and no more**, which was checked rather than
+assumed: Kaysa, Mija and Cotera have nothing listed within 30 blocks, and Tera has 5 spruce blocks
+at about 31 — the edge of a shrine that runs from `1788` to `1799` and is built of light blue glazed
+terracotta. They fall inside the 40-block box and go. That is the one place on the map where a
+shrine and a fountain come close, and it is worth a look in game before applying: if the shrine is
+what stands there and the fountain is clear of it, nothing is lost by dropping five slabs.
+
+**Run it on the existing list too, not only after a rebuild.** If step 1 says the current list still
+fits and you are about to apply it unchanged, put it through `keepout.py` first — the fountains came
+into use after that list was written, so nothing in it knows about them.
+
 ## Step 3 — apply, and verify against the map rather than the report
 
 `RUNBOOK.md` has the full procedure. The three gates, in order, none of them skippable:
@@ -144,3 +170,7 @@ Take a snapshot or note the newest smartbackup id before replacing anything.
   without a shell to test it in. The first run of it is a test of the tool: if the expected-landscape
   count comes back as anything other than 6,231 for the current pair of lists, suspect the change
   before suspecting the map.
+
+- **`keepout.py` has never been run either**, for the same reason. Its expected output on
+  `server_verify2.txt` is 1,685,102 written of 1,685,107 read, with 5 dropped near Tera. Anything
+  else means the tool, not the map.
