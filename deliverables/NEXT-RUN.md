@@ -78,6 +78,44 @@ That scan is most of the cost of a rebuild anyway, so the honest shape of the de
 and rebuild if it disagrees. `fits.py` stays worth running first because it is cheap and it catches
 a wrong base outright, but a clean `fits.py` is a necessary condition, not a sufficient one.
 
+### Measured on backup 19752135, 20 August 15:09 — the pass that was carried through
+
+The whole chain ran on this backup, from `fits.py` to `verify_purge.py`, with nobody on the server
+and the map still. It is the reference to compare a future run against.
+
+| step | figure |
+|---|---|
+| `fits.py` expected landscape | 6,231 — the bodies, exactly, and the first time the third argument has worked |
+| `fits.py` different built block | **0** |
+| `fits.py` landscape block | 7,520 (0.45%), against 7,423 four days earlier |
+| `keepout.py` | 1,684,839 written of 1,685,107, 268 dropped near Tera |
+| dry run | cleared 1,671,087 of 1,684,839; refused 13,752; renamed 1,479 |
+| real run | the same three numbers, block for block |
+| step 5b | cleared 6,231 of 6,231, refused 0 |
+| `verify_purge.py` | **0 blocks destroyed that were not on the list**, 0 landscape among them |
+
+Four days of play moved 97 listed positions. That is the shape of drift on this map when it is not
+being edited by hand, and it is worth knowing: the 7,423 measured on 16 August were eight to ten
+structures taken down deliberately, not four days of ordinary play.
+
+Two numbers in that table need reading rather than checking:
+
+- **refused 13,752, not 13,751.** 6,231 bodies plus the 7,520 `fits.py` found gone comes to 13,751.
+  The extra one is the `hay_block` position where the world holds `dirt_path`: `fits.py` reads the
+  Python terrain rule, the mod reads `BulkPurge.isTerrain`, and on that one block they disagree.
+  The guard doing its job, not a miss.
+- **`verify_purge.py` sees 1,677,087 cleared where the two runs claim 1,677,318.** The 231 are the
+  positions step 5b counted as "cleared under a different name" — 119 `blue_ice` and 112
+  `packed_ice`. Read off both copies directly, all 231 were **already air in the backup**: the mod
+  compared the listed name against `air`, found them different, and counted a rename. Nothing was
+  left standing — all 6,231 bodies are gone. The accounting closes exactly: 1,677,087 changed to air
+  + 7,520 already gone + 231 already air + 1 refused = 1,684,839 listed.
+
+The `352 blocks appeared where there was air` and `277 blocks changed in some other way` are the
+world finishing its own generation, as the runbook describes: oak stairs, planks, logs and leaves,
+`grass_block` becoming `dirt_path` and `cobblestone` — a village laying its paths. Not deletions,
+and none of them landscape.
+
 ### Measured on backup 18439422, 16 August 13:09
 
 Against the map the server was running twenty hours after the list was built:
@@ -167,12 +205,19 @@ machines are in this repository as the same coincidence written down before it b
 leave a structure standing near a fountain, it cannot delete something that would otherwise have
 survived.
 
-Against the current list it drops **5 positions and no more**, which was checked rather than
-assumed: Kaysa, Mija and Cotera have nothing listed within 30 blocks, and Tera has 5 spruce blocks
-at about 31 — the edge of a shrine that runs from `1788` to `1799` and is built of light blue glazed
-terracotta. They fall inside the 40-block box and go. That is the one place on the map where a
-shrine and a fountain come close, and it is worth a look in game before applying: if the shrine is
-what stands there and the fountain is clear of it, nothing is lost by dropping five slabs.
+Against the current list it drops **268 positions**, all of them near Tera: Kaysa, Mija and Cotera
+have nothing listed anywhere near them, and Tera has a whole shrine inside its box. It runs from
+`1788` to `1799` in x and `6681` to `6692` in z, 29 to 40 blocks away by the box's own measure, and
+it is 142 `gray_concrete`, 55 `spruce_planks`, 13 `light_blue_glazed_terracotta` and the rest of a
+shrine's palette, anvil and daylight detector included.
+
+An earlier version of this paragraph said 5 positions, from an estimate made without running the
+tool: it counted only the handful at exactly the edge and missed the body of the shrine standing
+behind them. **268 is the measured figure**, from the 20 August run — and it is not "five slabs" but
+a structure that will now be left standing. That is the trade this filter exists to make, and it is
+the right way round: a shrine left up can be taken down later, a fountain taken down cannot be put
+back. Worth a look in game all the same, since it is the one place on the map where a shrine and a
+fountain come this close.
 
 **Run it on the existing list too, not only after a rebuild.** If step 1 says the current list still
 fits and you are about to apply it unchanged, put it through `keepout.py` first — the fountains came
@@ -229,15 +274,23 @@ Take a snapshot or note the newest smartbackup id before replacing anything.
   in the archive, three on the server, three removals the owner confirmed. `tools/subset.py` would
   answer the converse, whether the archive holds things the server does not, and has never been run.
 
-- **`fits.py`'s third argument shipped broken, and the fix belongs in this repository.** The first
-  run of it returned 0 expected-landscape instead of 6,231. The cause is a Windows/Linux difference:
-  `EXPECTED_LANDSCAPE` was a module-level global mutated inside `main()`, which forked workers
-  inherit and **spawned** workers do not. The comment justifying it pointed at `REGION_DIR` as
-  precedent, but `REGION_DIR` is read from `os.environ`, and spawn passes the environment — a
+- **`fits.py`'s third argument shipped broken. Fixed on 20 August**, and the fix is in this
+  repository. It returned 0 expected-landscape instead of 6,231. The cause is a Windows/Linux
+  difference: `EXPECTED_LANDSCAPE` was a module-level global mutated inside `main()`, which forked
+  workers inherit and **spawned** workers do not. The comment justifying it pointed at `REGION_DIR`
+  as precedent, but `REGION_DIR` is read from `os.environ`, and spawn passes the environment — a
   constant derived from the environment survives, a global mutated at runtime does not. Writing the
-  two as the same mechanism is what hid it. The set has to travel in the work item instead. Anything
-  written here that was never run deserves the same suspicion.
+  two as the same mechanism is what hid it. The set now travels in the work item, split per region,
+  and the 20 August run returned 6,231 exactly.
 
-- **`keepout.py` has never been run either**, for the same reason. Its expected output on
-  `server_verify2.txt` is 1,685,102 written of 1,685,107 read, with 5 dropped near Tera. Anything
-  else means the tool, not the map.
+- **`verify_purge.py` had the same bug, and it was the more dangerous of the two.** `PURGED` is a
+  module global set from `argv` inside `main()` and read inside `compare()`, which runs in the
+  workers. Spawned, they read the module default — `../StructuresRemover/run/alltest/region`, a path
+  that does not exist here. A directory that is not there yields no chunks, so no differences, so
+  `0 blocks were destroyed that were not on the list`: the check passes by failing to look. Both
+  directories now travel in the work item, and `main()` refuses to start if either is missing.
+  Anything written here that was never run deserves the same suspicion.
+
+- **`keepout.py` had never been run either.** It has now: on `server_verify2.txt` it writes
+  1,684,839 of 1,685,107 read, dropping **268** near Tera — not the 5 an earlier estimate here
+  predicted. See step 2 for what those 268 are.

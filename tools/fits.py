@@ -30,14 +30,18 @@ from multiprocessing import Pool
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import discover
 
-# Positions where finding landscape is the expected answer rather than a disagreement. Module level
-# because the workers are forked and inherit it, which is how REGION_DIR already reaches them.
-EXPECTED_LANDSCAPE = set()
-
 
 def main():
     listing = sys.argv[1]
     workers = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+
+    # Positions where finding landscape is the expected answer rather than a disagreement. They
+    # travel to the workers inside their region's work item, and nowhere else. An earlier version
+    # kept them in a module-level global mutated here, on the grounds that forked workers inherit
+    # it "which is how REGION_DIR already reaches them" — but REGION_DIR is read from os.environ,
+    # and a spawned worker gets the environment while getting none of this process's mutations.
+    # On Windows, where spawn is the only start method, that returned 0 expected instead of 6,231.
+    expected_landscape = set()
 
     if len(sys.argv) > 3:
         with open(sys.argv[3]) as fh:
@@ -45,10 +49,10 @@ def main():
                 parts = line.split()
 
                 if len(parts) >= 3:
-                    EXPECTED_LANDSCAPE.add((int(parts[0]), int(parts[1]), int(parts[2])))
+                    expected_landscape.add((int(parts[0]), int(parts[1]), int(parts[2])))
 
         print('%d positions where landscape is expected, from %s'
-              % (len(EXPECTED_LANDSCAPE), sys.argv[3]))
+              % (len(expected_landscape), sys.argv[3]))
 
     by_region = defaultdict(list)
 
@@ -60,9 +64,17 @@ def main():
                 x, y, z = int(parts[0]), int(parts[1]), int(parts[2])
                 by_region[(x >> 9, z >> 9)].append((x, y, z, parts[3]))
 
+    expected_by_region = defaultdict(set)
+
+    for x, y, z in expected_landscape:
+        expected_by_region[(x >> 9, z >> 9)].add((x, y, z))
+
     total = sum(len(v) for v in by_region.values())
     print('%d positions across %d regions of %s'
           % (total, len(by_region), discover.REGION_DIR), flush=True)
+
+    work = [((rx, rz), wanted, expected_by_region.get((rx, rz), frozenset()))
+            for (rx, rz), wanted in sorted(by_region.items())]
 
     agree = 0
     landscape = Counter()
@@ -72,7 +84,7 @@ def main():
     done = 0
 
     with Pool(workers) as pool:
-        for result in pool.imap_unordered(_one, sorted(by_region.items()), chunksize=1):
+        for result in pool.imap_unordered(_one, work, chunksize=1):
             done += 1
             a, l, e, m, ab = result
             agree += a
@@ -88,7 +100,7 @@ def main():
     print('\n%d of %d listed positions hold the block the list names (%.2f%%)'
           % (agree, total, 100.0 * agree / max(1, total)))
 
-    if EXPECTED_LANDSCAPE:
+    if expected_landscape:
         print('%d hold landscape where landscape was expected' % sum(expected.values()))
 
     print('%d hold a landscape block' % sum(landscape.values()))
@@ -105,10 +117,10 @@ def main():
     # reach 100% against the map it was built from, so reading the percentage alone rejects the one
     # map that is right. What measures drift is `wrong`: positions that disagree and were not
     # declared as places where they would.
-    if EXPECTED_LANDSCAPE and sum(expected.values()) != len(EXPECTED_LANDSCAPE):
+    if expected_landscape and sum(expected.values()) != len(expected_landscape):
         print('\n%d of the %d declared landscape positions did not hold landscape. On a fresh copy '
               'that means it is not fresh.'
-              % (len(EXPECTED_LANDSCAPE) - sum(expected.values()), len(EXPECTED_LANDSCAPE)))
+              % (len(expected_landscape) - sum(expected.values()), len(expected_landscape)))
 
     if wrong > total // 1000:
         print('\nThis list does not describe this map. Build it from the map it will be applied to.')
@@ -122,7 +134,7 @@ def main():
 
 
 def _one(item):
-    (rx, rz), wanted = item
+    (rx, rz), wanted, expected_landscape = item
     blocks = discover.load_blocks(rx, rz)
 
     if blocks is None:
@@ -140,7 +152,7 @@ def _one(item):
             # Not in the non-terrain map: either landscape or air. Normally that means the list is
             # wrong here and the purge would refuse it — unless this is one of the positions where
             # landscape is what was expected, which the caller has to say in advance.
-            if (x, y, z) in EXPECTED_LANDSCAPE:
+            if (x, y, z) in expected_landscape:
                 expected[name] += 1
             else:
                 landscape[name] += 1

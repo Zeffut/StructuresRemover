@@ -34,6 +34,12 @@ RENAMES = {
 ORIGINAL = os.environ.get('SR_ORIGINAL', 'extracted/botwproject/region')
 PURGED = '../StructuresRemover/run/alltest/region'
 
+# Both directories travel to the workers inside the work item. ORIGINAL could ride on os.environ,
+# which spawn passes on, but PURGED comes from argv and used to be a module global mutated in
+# main(): a forked worker inherits that mutation and a spawned one does not, so on Windows every
+# worker read the default path instead. A missing directory yields no chunks, no differences, and
+# a report that says nothing was destroyed off the list — the check passing by failing to look.
+
 
 def section_names(section):
     """The 4096 block names of one section, in index order, or None if it holds nothing."""
@@ -110,9 +116,9 @@ def chunk_sections(path, wanted=None):
 
 def compare(args):
     """Every block that differs between the two copies of one region."""
-    name, wanted = args
-    before = chunk_sections(os.path.join(ORIGINAL, name), wanted)
-    after = chunk_sections(os.path.join(PURGED, name), wanted)
+    name, wanted, original, purged = args
+    before = chunk_sections(os.path.join(original, name), wanted)
+    after = chunk_sections(os.path.join(purged, name), wanted)
     changes = []
 
     for key, old in before.items():
@@ -171,6 +177,14 @@ def main():
     regions = sorted(touched)
     print('%d blocks listed, in %d chunks across %d regions'
           % (len(listed), sum(len(v) for v in touched.values()), len(regions)), flush=True)
+    print('before: %s' % ORIGINAL, flush=True)
+    print('after:  %s' % PURGED, flush=True)
+
+    for label, path in (('original', ORIGINAL), ('purged', PURGED)):
+        if not os.path.isdir(path):
+            print('the %s region directory %s is not there. Nothing can be compared against it, '
+                  'and a comparison against nothing reports no damage.' % (label, path))
+            return 1
 
     cleared = 0
     renamed = Counter()
@@ -183,7 +197,7 @@ def main():
 
     with Pool(workers) as pool:
         for name, changes in pool.imap_unordered(
-                compare, [(r, touched[r]) for r in regions], chunksize=1):
+                compare, [(r, touched[r], ORIGINAL, PURGED) for r in regions], chunksize=1):
             done += 1
 
             for x, y, z, old, new in changes:
@@ -226,6 +240,12 @@ def main():
         print('  %d %d %d  %s was deleted' % (x, y, z, old))
 
     print('%d listed blocks changed into something other than air' % len(survived))
+
+    # Printed rather than only counted: a listed position that became something else is either a
+    # rename the game did under us or a block the purge did not put to air, and telling those two
+    # apart needs the names. Counting it and hiding it leaves the reader nothing to go on.
+    for x, y, z, old, new in survived[:10]:
+        print('  %d %d %d  %s -> %s' % (x, y, z, old, new))
     print('\n%d blocks were destroyed that were not on the list' % len(destroyed))
 
     for x, y, z, old in destroyed[:10]:
@@ -259,4 +279,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main() or 0)
