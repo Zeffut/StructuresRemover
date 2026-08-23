@@ -51,7 +51,7 @@ takes one look in game to settle. Fly to `13198 5 7998` and look down.
 Until somebody has, **this family should be held out of the list.** It is 12% of the work and 100%
 of the unknown.
 
-## Finding 2 — the village houses would be left as shells
+## Finding 2 — the raw-walled village houses would be left as shells
 
 Covered in full in `SHELLS.md`. In short: at wall height, the list contains the window panes and not
 the wall they are set into. Cobblestone is protected as landscape because it generates on its own,
@@ -61,10 +61,9 @@ shell.
 
 Confirmed at `-5090 68 180` and `-1301 68 3345`, two members of two different families.
 
-## Every family opened so far
+## Every family opened
 
-Not everything is affected, and saying which is as useful as saying which is not. Eleven families
-opened, one member each, read position by position.
+Twelve families, one member each, read position by position.
 
 | family | sample | verdict |
 |---|---|---|
@@ -73,6 +72,7 @@ opened, one member each, read position by position.
 | oak + slab + stairs, 462 | `-1301 68 3345` | **shell** — same signature |
 | cobblestone stairs + oak, 421 | `12205 70 3883` | **shell** — doors and torches at y 70, no wall |
 | oak + trapdoor, 331 | `160 70 -3635` | **shell** — panes, torch, door, no wall |
+| oak + stairs, 718 | `-878 69 2980` | **clean** — `oak_planks` at y 69 *and* y 70: floor and wall both listed |
 | oak + stairs + wall torch, 674 | `11533 70 2695` | **clean** — `white_terracotta` walls listed at y 70–71 |
 | stables, dark oak, 61 × 804 | `-158 67 -4910` | **clean** — `dark_oak_planks` wall posts at y 73–75 |
 | green concrete, 178 | `3517 152 4109` | **clean** — solid fill y 158–161 |
@@ -80,11 +80,10 @@ opened, one member each, read position by position.
 | gray concrete powder, 858 | `6077 223 2590` | **clean** — sparse, high, y 221–224 |
 | shrines, 147 | — | **clean** — glazed terracotta, concrete, stained glass |
 
-**The shell problem is a village variant problem, not a general one.** It hits the houses whose walls
-are raw cobblestone or logs — the plains and taiga builds. The savanna houses at `11533` have
-`white_terracotta` walls, which are crafted and therefore listed, and they come out whole. Confirmed
-shells so far: 1,292 + 462 + 421 + 331 = **2,506 structures**, with two oak-plank families not yet
-opened.
+**The shell problem is narrower than "the village houses".** It is the four families whose walls are
+raw cobblestone or logs — **2,506 structures** of the roughly 11,500 in batch 3. The plank-walled
+houses at `-878` and the terracotta-walled savanna houses at `11533` are built of crafted material,
+so the purge takes their walls along with everything else and they come out whole.
 
 One more thing the stable shows, and it is the rule working the way it should: `cobblestone_stairs`
 **is** in the list while raw cobblestone is not. Stairs carry a worked marker, so cut stone is told
@@ -97,11 +96,13 @@ Nothing about the method and nothing about the verification, both of which did w
 What it changes is what "finished" means: a list that passes every check can still be a list that
 should not be applied as it stands.
 
-Three things now want a decision rather than a measurement:
+Two things now want a decision rather than a measurement, and both are settled by standing in one
+place in game:
 
-1. The 2,453 underground walkways — hold out until somebody looks.
-2. The village houses with raw walls — either extend into their walls the way `bodies.py` extends
-   into the creatures, or drop those four families and leave the houses whole.
-3. Everything else — unaffected, and can proceed as `PLAN.md` sets out.
+1. The 2,453 underground walkways — hold out until somebody looks at `13198 5 7998`.
+2. The four raw-walled house families, 2,506 structures — either extend into their walls the way
+   `bodies.py` extends into the creatures, or drop those four families and leave the houses whole.
+   Look at `-5090 68 180`.
 
-Two oak-plank families remain unopened. This document is a beginning, not a survey.
+Everything else is unaffected and can proceed as `PLAN.md` sets out. That is 12,754 of the 15,713
+structures, and it includes every landmark: the shrines, the towers, the stables, the tents.
