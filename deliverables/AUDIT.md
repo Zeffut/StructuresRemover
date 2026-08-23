@@ -61,20 +61,35 @@ shell.
 
 Confirmed at `-5090 68 180` and `-1301 68 3345`, two members of two different families.
 
-## Families checked and cleared
+## Every family opened so far
 
-Not everything is affected, and saying which is as useful as saying which is not.
+Not everything is affected, and saying which is as useful as saying which is not. Eleven families
+opened, one member each, read position by position.
 
 | family | sample | verdict |
 |---|---|---|
-| green concrete and terracotta, 178 | `3517 152 4109` | **clean** — solid fill y 158–161, no protected material in the palette |
-| stables, dark oak, 61 × 804 blocks | `-158 67 -4910` | **clean** — walls present in the list as `dark_oak_planks` posts at y 73–75 |
-| shrines, 147 | — | **clean** — glazed terracotta, concrete, stained glass, none protected |
+| oak planks, 2,453 | `619 6 -57` | **hold** — the underground walkways above |
+| glass pane + oak, 1,292 | `-5090 68 180` | **shell** — nothing at wall height but the window panes |
+| oak + slab + stairs, 462 | `-1301 68 3345` | **shell** — same signature |
+| cobblestone stairs + oak, 421 | `12205 70 3883` | **shell** — doors and torches at y 70, no wall |
+| oak + trapdoor, 331 | `160 70 -3635` | **shell** — panes, torch, door, no wall |
+| oak + stairs + wall torch, 674 | `11533 70 2695` | **clean** — `white_terracotta` walls listed at y 70–71 |
+| stables, dark oak, 61 × 804 | `-158 67 -4910` | **clean** — `dark_oak_planks` wall posts at y 73–75 |
+| green concrete, 178 | `3517 152 4109` | **clean** — solid fill y 158–161 |
+| light blue concrete, 268 | `8172 134 -55` | **clean** — a tower, y 90 to 139, lapis and stairs, nothing protected |
+| gray concrete powder, 858 | `6077 223 2590` | **clean** — sparse, high, y 221–224 |
+| shrines, 147 | — | **clean** — glazed terracotta, concrete, stained glass |
 
-The stable is worth one more note, because it shows the terrain rule working the way it should:
-`cobblestone_stairs` **is** in the list. Stairs carry a worked marker, so cut stone is told apart
-from the stone it was cut from. Raw cobblestone stays, cobblestone stairs go. That distinction is
-the thing the shells finding runs into from the other side.
+**The shell problem is a village variant problem, not a general one.** It hits the houses whose walls
+are raw cobblestone or logs — the plains and taiga builds. The savanna houses at `11533` have
+`white_terracotta` walls, which are crafted and therefore listed, and they come out whole. Confirmed
+shells so far: 1,292 + 462 + 421 + 331 = **2,506 structures**, with two oak-plank families not yet
+opened.
+
+One more thing the stable shows, and it is the rule working the way it should: `cobblestone_stairs`
+**is** in the list while raw cobblestone is not. Stairs carry a worked marker, so cut stone is told
+apart from the stone it was cut from. That same distinction is what the shells finding runs into
+from the other side — the wall is raw, the roof is cut, and only the roof goes.
 
 ## What this changes
 
@@ -85,8 +100,8 @@ should not be applied as it stands.
 Three things now want a decision rather than a measurement:
 
 1. The 2,453 underground walkways — hold out until somebody looks.
-2. The village houses — either extend into their walls the way `bodies.py` extends into the
-   creatures, or drop those families and leave the houses whole.
+2. The village houses with raw walls — either extend into their walls the way `bodies.py` extends
+   into the creatures, or drop those four families and leave the houses whole.
 3. Everything else — unaffected, and can proceed as `PLAN.md` sets out.
 
-The rest of the families have not been opened yet. This document is a beginning, not a survey.
+Two oak-plank families remain unopened. This document is a beginning, not a survey.
